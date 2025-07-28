@@ -32,7 +32,7 @@ clean_names <- function(x) {
     str_replace_all("\\s+", " ")
 }
 
-# Load your datasets
+# Loading Datasets and Cleaning Column Names
 
 pre_clean <- read_csv(here("data", "raw", "PV_pre_raw-data.csv")) |>
   select(2:last_col()) |>
@@ -63,7 +63,7 @@ pre_clean <- read_csv(here("data", "raw", "PV_pre_raw-data.csv")) |>
     competetition = 24,
     colleague_wellness_support = 25,
     community = 26,
-    wellness_work = 27,
+    wellness_enhance_work = 27,
     body_aware = 28,
     feelings_aware = 29,
     mind_aware = 30,
@@ -100,13 +100,14 @@ pre_clean <- read_csv(here("data", "raw", "PV_pre_raw-data.csv")) |>
   mutate(cleaned_id = clean_names(matching_id)) |>
   relocate(cleaned_id, .before = name)
 
+# Matching data with participant 
 matching_log <- read_csv(here("data", "raw", "master_log.csv")) |>
   rename(
     id = 1,
     name = 2,
     matching_id = 3) |>
-  mutate(cleaned_id = clean_names(matching_id))
-
+  mutate(cleaned_id = clean_names(matching_id)) |>
+  distinct(cleaned_id, .keep_all = TRUE) 
 
 # Match data to add participant ID to
 matched_data <- pre_clean |>
@@ -115,19 +116,81 @@ matched_data <- pre_clean |>
       select(id, cleaned_id),
     by = c("cleaned_id") 
   ) |>
-  relocate(id, .before = age)
-
-matched_data |>
+  relocate(id, .before = age) |> 
   distinct(cleaned_id, .keep_all = TRUE) |>
-  count(cleaned_id) |>
-  filter(n > 1)
-# 
-  # rename(training_name_experi = 5) |>
-  
-# Remove Timestamp
-# Change Name
+  mutate(time_point = "pre") |>
+  relocate(time_point, .after = id)
 
-# post_data <- here("data", "raw", "PV_post_raw-data.csv")
+post_data <- read_csv(here("data", "raw", "PV_post_raw-data.csv")) |>
+  select(2:last_col()) |>
+  rename(
+    presurvey_check = 1,
+    attendance_criteria = 2,
+    matching_id = 3,
+    name = 4,
+    mindful_experi = 5,
+    mindful_style = 6,
+    plum_village_experi = 7,
+    training_experi = 8,
+    training_name_experi = 9,
+    retreat_binary = 10,
+    retreat_type = 11,
+    plum_village_practice = 12,
+    plum_village_sangha = 13,
+    work_sector = 14,
+    area_of_exploration = 15,
+    affiliation = 16,
+    age = 17,
+    gender = 18,
+    country = 19,
+    ethnicity = 20,
+    nature_binary = 21,
+    nature = 22,
+    takeaway = 23,
+    post_collaboration = 24,
+    compassion_insight = 25,
+    global_challenge_insight = 26,
+    collaborative_atmosphere_scientist = 27,
+    collaborative_atmosphere_attendees = 28,
+    colleague_wellness_support = 29,
+    community = 30,
+    body_aware = 31,
+    feelings_aware = 32,
+    mind_aware = 33,
+    perception_aware = 34,
+    happy = 35,
+    life_interest = 36,
+    life_satisfication = 37,
+    society_contribution = 38,
+    belonging = 39,
+    society_good = 40,
+    people_good = 41,
+    society_makes_sense = 42,
+    personality_satisfication = 43,
+    life_responsibility_management = 44,
+    warm_trusting_relationship = 45,
+    growth_opportunities = 46,
+    confidence_ideas = 47,
+    life_direction = 48,
+    work_challenges = 49,
+    anything_else = 50) |>
+  filter(attendance_criteria == "Yes") |>
+  
+  #this participant did not sign the consent form with their name 
+  # and had to be removed. They entered "yes". 
+  slice(-57) |>
+  mutate(cleaned_id = clean_names(matching_id)) |>
+  mutate(cleaned_name = clean_names(name)) |>
+  select(-c(attendance_criteria, name, matching_id)) |>
+  relocate(cleaned_id:cleaned_name, .after = presurvey_check)
+
+new_matching_log <- matching_log |>
+  left_join(
+    post_data |>
+      select(cleaned_id, cleaned_name),
+    by = c("cleaned_id"))
+  
+
 # matching_data <- here("data", "raw", "Master_Log.csv")
 # 
 # pre_post_data <- c(pre_data, post_data, matching_data)
