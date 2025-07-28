@@ -23,13 +23,22 @@ pacman::p_load(fuzzyjoin, ggplot2, ggtext, knitr, tidyverse, here)
 
 # LOAD & CLEAN the data -----------------------------------------------------------------------------------------------------------------
 
+
+# Function to clean names to match with their IDs
+clean_names <- function(x) {
+  x |>
+    tolower() |>
+    stringr::str_trim() |>
+    str_replace_all("\\s+", " ")
+}
+
 # Load your datasets
 
 pre_clean <- read_csv(here("data", "raw", "PV_pre_raw-data.csv")) |>
   select(2:last_col()) |>
   rename(
     name = 1,
-    participant_id = 2,
+    matching_id = 2,
     mindful_experi = 3,
     mindful_style = 4,
     plum_village_experi = 5,
@@ -84,12 +93,35 @@ pre_clean <- read_csv(here("data", "raw", "PV_pre_raw-data.csv")) |>
     nature = 54,
     work_challenges = 55,
     anything_else = 56) |>
-  relocate(age:ethnicity, .after = participant_id) |>
+  relocate(age:ethnicity, .after = matching_id) |>
   relocate(work_sector:affiliation, .after = ethnicity) |>
   relocate(nature_binary:nature, .after = plum_village_practice) |>
-  relocate(happy:life_direction, .after = perception_aware)
-    
-    
+  relocate(happy:life_direction, .after = perception_aware) |>
+  mutate(cleaned_id = clean_names(matching_id)) |>
+  relocate(cleaned_id, .before = name)
+
+matching_log <- read_csv(here("data", "raw", "master_log.csv")) |>
+  rename(
+    id = 1,
+    name = 2,
+    matching_id = 3) |>
+  mutate(cleaned_id = clean_names(matching_id))
+
+
+# Match data to add participant ID to
+matched_data <- pre_clean |>
+  left_join(
+    matching_log |> 
+      select(id, cleaned_id),
+    by = c("cleaned_id") 
+  ) |>
+  relocate(id, .before = age)
+
+matched_data |>
+  distinct(cleaned_id, .keep_all = TRUE) |>
+  count(cleaned_id) |>
+  filter(n > 1)
+# 
   # rename(training_name_experi = 5) |>
   
 # Remove Timestamp
