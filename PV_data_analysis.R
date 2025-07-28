@@ -29,7 +29,7 @@ pre_clean <- read_csv(here("data", "raw", "PV_pre_raw-data.csv")) |>
   select(2:last_col()) |>
   rename(
     name = 1,
-    partipant_id = 2,
+    participant_id = 2,
     mindful_experi = 3,
     mindful_style = 4,
     plum_village_experi = 5,
@@ -41,7 +41,54 @@ pre_clean <- read_csv(here("data", "raw", "PV_pre_raw-data.csv")) |>
     plum_village_sangha = 11,
     work_sector = 12,
     area_of_exploration = 13,
-    affiliation = 14)
+    affiliation = 14,
+    anxiety = 15,
+    bordeom = 16,
+    calm = 17,
+    connection = 18,
+    curiosity = 19,
+    despair = 20,
+    frustrations = 21,
+    joy = 22,
+    collaboration = 23,
+    competetition = 24,
+    colleague_wellness_support = 25,
+    community = 26,
+    wellness_work = 27,
+    body_aware = 28,
+    feelings_aware = 29,
+    mind_aware = 30,
+    perception_aware = 31,
+    collaboration_qual = 32,
+    competition_qual = 33,
+    happy = 34,
+    life_interest = 35,
+    life_satisfication = 36,
+    society_contribution = 37,
+    belonging = 38,
+    society_good = 39,
+    people_good = 40,
+    society_makes_sense = 41,
+    personality_satisfication = 42,
+    life_responsibility_management = 43,
+    warm_trusting_relationship = 44,
+    growth_opportunities = 45,
+    confidence_ideas = 46,
+    life_direction = 47,
+    work_life = 48,
+    age = 49,
+    gender = 50,
+    country = 51,
+    ethnicity = 52,
+    nature_binary = 53,
+    nature = 54,
+    work_challenges = 55,
+    anything_else = 56) |>
+  relocate(age:ethnicity, .after = participant_id) |>
+  relocate(work_sector:affiliation, .after = ethnicity) |>
+  relocate(nature_binary:nature, .after = plum_village_practice) |>
+  relocate(happy:life_direction, .after = perception_aware)
+    
     
   # rename(training_name_experi = 5) |>
   
