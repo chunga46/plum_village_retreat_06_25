@@ -106,8 +106,11 @@ matching_log <- read_csv(here("data", "raw", "master_log.csv")) |>
     id = 1,
     name = 2,
     matching_id = 3) |>
-  mutate(cleaned_id = clean_names(matching_id)) |>
-  distinct(cleaned_id, .keep_all = TRUE) 
+  mutate(cleaned_id = clean_names(matching_id),
+         cleaned_name = clean_names(name),
+         time_point = "Pre") |>
+  distinct(cleaned_id, .keep_all = TRUE)|>
+  select(-name)
 
 # Match data to add participant ID to
 matched_data <- pre_clean |>
@@ -182,14 +185,59 @@ post_data <- read_csv(here("data", "raw", "PV_post_raw-data.csv")) |>
   mutate(cleaned_id = clean_names(matching_id)) |>
   mutate(cleaned_name = clean_names(name)) |>
   select(-c(attendance_criteria, name, matching_id)) |>
-  relocate(cleaned_id:cleaned_name, .after = presurvey_check)
+  relocate(cleaned_id:cleaned_name, .after = presurvey_check) |>
+  mutate(time_point = "post") |>
+  relocate(time_point, .after = presurvey_check)
 
-new_matching_log <- matching_log |>
+# Step 1: Identify new participants in post_data
+new_participants <- post_data |>
+  # anti_join(new_matching_log, by = "cleaned_name") |>
+  anti_join(matching_log, by = "cleaned_id") |>
+  select(cleaned_id) |>
+  distinct() |>
+  mutate(
+    # Extract highest existing ID number
+    last_id_num = ifelse(
+      nrow(matching_log) > 0,
+      max(
+        as.numeric(str_extract(matching_log$id, "\\d+")),
+        na.rm = TRUE
+      ),
+      0  # Default if no IDs exist
+    ),
+    # Create new IDs
+    id = paste0("Participant ", last_id_num + row_number()) 
+  )
+
+# Step 2: Update matching log
+updated_matching_log <- matching_log |>
+  # Update existing participants (bring in new names if changed)
+  rows_update(
+    post_data |>
+      select(cleaned_id),
+    by = "cleaned_id",
+    unmatched = "ignore"
+  ) |>
+  # Add new participants
+  bind_rows(new_participants) |>
+  # Optional: Add time_point from post_data
   left_join(
     post_data |>
-      select(cleaned_id, cleaned_name),
-    by = c("cleaned_id"))
-  
+      select(cleaned_id, time_point),
+      by = "cleaned_id") |>
+  # For existing participants with multiple time_points, collapse them
+  group_by(id, cleaned_id) |>
+  summarize(
+    time_points = paste(unique(time_point), collapse = ", "),
+    .groups = "drop"
+  )
+
+# # Step 3: Verify
+# list(
+#   existing_updated = nrow(new_matching_log),
+#   new_added = nrow(new_participants),
+#   final_count = nrow(updated_matching_log))
+#   
 
 # matching_data <- here("data", "raw", "Master_Log.csv")
 # 
