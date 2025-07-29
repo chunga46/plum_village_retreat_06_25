@@ -6,7 +6,7 @@
 
 # List of required packages
 required_packages <- c("fuzzyjoin", "ggplot2", "ggtext", "knitr", "tidyverse", 
-             "tidyr", "dplyr", "here")
+             "tidyr", "dplyr", "here", "stringr")
 
 if (!require(pacman)) install.packages("pacman")
 pacman::p_load(fuzzyjoin, ggplot2, ggtext, knitr, tidyverse, here)
@@ -27,9 +27,14 @@ pacman::p_load(fuzzyjoin, ggplot2, ggtext, knitr, tidyverse, here)
 # Function to clean names to match with their IDs
 clean_names <- function(x) {
   x |>
-    tolower() |>
-    stringr::str_trim() |>
-    str_replace_all("\\s+", " ")
+    # Remove accents
+    iconv(to = "ASCII//TRANSLIT") %>%
+    # Remove punctuation and symbols
+    str_replace_all("[^[:alnum:] ]", "") %>%
+    # Optional: convert to lowercase
+    str_to_lower() %>%
+    # Optional: trim whitespace
+    str_trim()
 }
 
 # Loading Datasets and Cleaning Column Names
@@ -100,29 +105,17 @@ pre_clean <- read_csv(here("data", "raw", "PV_pre_raw-data.csv")) |>
   mutate(cleaned_id = clean_names(matching_id)) |>
   relocate(cleaned_id, .before = name)
 
-# Matching data with participant 
-matching_log <- read_csv(here("data", "raw", "master_log.csv")) |>
-  rename(
-    id = 1,
-    name = 2,
-    matching_id = 3) |>
-  mutate(cleaned_id = clean_names(matching_id),
-         cleaned_name = clean_names(name),
-         time_point = "Pre") |>
-  distinct(cleaned_id, .keep_all = TRUE)|>
-  select(-name)
-
-# Match data to add participant ID to
-matched_data <- pre_clean |>
-  left_join(
-    matching_log |> 
-      select(id, cleaned_id),
-    by = c("cleaned_id") 
-  ) |>
-  relocate(id, .before = age) |> 
-  distinct(cleaned_id, .keep_all = TRUE) |>
-  mutate(time_point = "pre") |>
-  relocate(time_point, .after = id)
+# # Match data to add participant ID to
+# matched_data <- pre_clean |>
+#   left_join(
+#     matching_log |> 
+#       select(id, cleaned_id),
+#     by = c("cleaned_id") 
+#   ) |>
+#   relocate(id, .before = age) |> 
+#   distinct(cleaned_id, .keep_all = TRUE) |>
+#   mutate(time_point = "pre") |>
+#   relocate(time_point, .after = id)
 
 post_data <- read_csv(here("data", "raw", "PV_post_raw-data.csv")) |>
   select(2:last_col()) |>
@@ -188,49 +181,128 @@ post_data <- read_csv(here("data", "raw", "PV_post_raw-data.csv")) |>
   relocate(cleaned_id:cleaned_name, .after = presurvey_check) |>
   mutate(time_point = "post") |>
   relocate(time_point, .after = presurvey_check)
+ 
 
-# Step 1: Identify new participants in post_data
-new_participants <- post_data |>
-  # anti_join(new_matching_log, by = "cleaned_name") |>
-  anti_join(matching_log, by = "cleaned_id") |>
-  select(cleaned_id) |>
-  distinct() |>
-  mutate(
-    # Extract highest existing ID number
-    last_id_num = ifelse(
-      nrow(matching_log) > 0,
-      max(
-        as.numeric(str_extract(matching_log$id, "\\d+")),
-        na.rm = TRUE
-      ),
-      0  # Default if no IDs exist
-    ),
-    # Create new IDs
-    id = paste0("Participant ", last_id_num + row_number()) 
-  )
+# Matching data with participant 
+matching_log <- read_csv(here("data", "raw", "master_log.csv")) |>
+  rename(
+    id = 1,
+    name = 2,
+    matching_id = 3) |>
+  mutate(cleaned_id = clean_names(matching_id),
+         cleaned_name = clean_names(name),
+         time_point = "pre") |>
+  distinct(cleaned_id, .keep_all = TRUE)|>
+  select(-c(name, matching_id))
 
-# Step 2: Update matching log
-updated_matching_log <- matching_log |>
-  # Update existing participants (bring in new names if changed)
-  rows_update(
-    post_data |>
-      select(cleaned_id),
-    by = "cleaned_id",
-    unmatched = "ignore"
-  ) |>
-  # Add new participants
-  bind_rows(new_participants) |>
-  # Optional: Add time_point from post_data
-  left_join(
-    post_data |>
-      select(cleaned_id, time_point),
-      by = "cleaned_id") |>
-  # For existing participants with multiple time_points, collapse them
-  group_by(id, cleaned_id) |>
-  summarize(
-    time_points = paste(unique(time_point), collapse = ", "),
-    .groups = "drop"
-  )
+# step 1: Add participants that completed both post and follow up
+exact_matches <- matching_log |>
+  left_join(post_data |> 
+              select(cleaned_id, cleaned_name, time_point), 
+            by = "cleaned_id")
+
+# identify unmatched records
+unmatched <- exact_matches |>
+  filter(is.na(cleaned_name.y) & is.na(time_point.y))
+
+# Find name containment matches for unmatched records
+name_matches <- unmatched |>
+  select(id, cleaned_id, cleaned_name.x, time_point.x) |>
+  cross_join(post_data |> 
+               rename(post_id = cleaned_id,
+                      post_time = time_point) |>
+               filter(presurvey_check == "Yes") |>
+               select(post_id, post_time)) |>
+  filter(
+    str_detect(post_id, fixed(cleaned_name.x, ignore_case = TRUE)) |
+    str_detect(cleaned_name.x, fixed(post_id, ignore_case = TRUE)) |
+    str_detect(post_id, fixed(cleaned_id, ignore_case = TRUE)) |
+    str_detect(cleaned_name.x, fixed(post_id, ignore_case = TRUE)) 
+  )|> 
+  slice(-c(6, 9, 10, 12, 13))
+
+# # Combine results
+# final_log <- updated_log %>%
+#   # Remove original unmatched records that we're replacing
+#   filter(!(id %in% unmatched$id)) %>%
+#   # Add the name-matched records
+#   bind_rows(name_matches) %>%
+#   # Add completely new participants from post_data
+#   bind_rows(
+#     post_data %>%
+#       anti_join(matching_log, by = "cleaned_id") %>%
+#       anti_join(name_matches, by = c("cleaned_name" = "cleaned_name.y")) %>%
+#       mutate(
+#         id = paste0("Participant_", 
+#                     max(as.numeric(str_extract(matching_log$id, "\\d+")), na.rm = TRUE) + row_number()),
+#         cleaned_name.x = NA_character_,
+#         time_point.x = NA_character_
+#       )
+#   ) %>%
+#   # Standardize column order
+#   select(id, cleaned_id, cleaned_name.x, time_point.x, cleaned_name.y, time_point.y)
+
+
+  # inner_join(
+  #   post_data |>
+  #     mutate(contained = TRUE),  # Flag for joining
+  #   by = character()  # Cartesian product
+  # ) %>%
+  # filter(
+  #   str_detect(name.y, fixed(name.x, ignore_case = TRUE)) |
+  #     str_detect(name.x, fixed(name.y, ignore_case = TRUE))
+  # ) %>%
+  # select(-contained) %>%
+  # distinct()  # Avoid duplicates
+  # # Categorize each record
+  # mutate(
+  #   status = ifelse(!is.na(cleaned_id.y) | !is.na(name.y), "confirmed", "new"),
+  #   time_point = ifelse(status == "confirmed", "both", "post")
+  # )
+
+
+# # Step 1: Identify new participants in post_data
+# updated_log <- post_data |>
+#   # anti_join(new_matching_log, by = "cleaned_name") |>
+#   anti_join(updated_log, by = "cleaned_id") |>
+#   select(cleaned_id) |>
+#   distinct() |>
+#   mutate(
+#     # Extract highest existing ID number
+#     last_id_num = ifelse(
+#       nrow(matching_log) > 0,
+#       max(
+#         as.numeric(str_extract(matching_log$id, "\\d+")),
+#         na.rm = TRUE
+#       ),
+#       0  # Default if no IDs exist
+#     ),
+#     # Create new IDs
+#     id = paste0("Participant ", last_id_num + row_number())
+#   )
+
+# # Step 2: Update matching log
+# updated_matching_log <- matching_log |>
+#   # Update existing participants (bring in new names if changed)
+#   rows_update(
+#     post_data |>
+#       select(cleaned_id),
+#     by = "cleaned_id",
+#     unmatched = "ignore"
+#   ) |>
+#   # Add new participants
+#   bind_rows(new_participants) |>
+#   # Optional: Add time_point from post_data
+#   left_join(
+#     post_data |>
+#       select(cleaned_id, time_point),
+#       by = "cleaned_id") |>
+#   # For existing participants with multiple time_points, collapse them
+#   group_by(id, cleaned_id) |>
+#   summarize(
+#     time_points = paste(unique(time_point), collapse = ", "),
+#     .groups = "drop"
+#   )
 
 # # Step 3: Verify
 # list(
