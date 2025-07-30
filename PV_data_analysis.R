@@ -289,6 +289,7 @@ cleaned_pre_data <- matching_log |>
 
 common_cols <- intersect(names(cleaned_pre_data), names(cleaned_post_data))
 pre_post_data <- full_join(cleaned_pre_data, cleaned_post_data, by = common_cols)
+  #person did not enter name and has not consented
 
 # removes duplicates and merges them together while also fixing pre post
 pre_post_data <- pre_post_data |>
@@ -303,7 +304,8 @@ pre_post_data <- pre_post_data |>
     ),
     across(everything(), ~ coalesce(.[!is.na(.)][1])),  # Take first non-NA value
     .groups = "drop"
-  )
+  ) |>
+  slice(-c(11)) 
 
 #separating qual and quant for initial independent analysis
 qual_pre_post <- pre_post_data |>
@@ -316,6 +318,6 @@ quant_pre_post <- pre_post_data |>
             work_challenges_post:anything_else_post))
 
 # Writing data
-# write_csv(pre_post_data, here("data", "processed", "pre_post_data.csv"))
-# write_csv(qual_pre_post, here("data", "processed", "qual_pre_post_data.csv"))
-# write_csv(quant_pre_post, here("data", "processed", "quant_pre_post_data.csv"))
+write_csv(pre_post_data, here("data", "processed", "pre_post_data.csv"))
+write_csv(qual_pre_post, here("data", "processed", "qual_pre_post_data.csv"))
+write_csv(quant_pre_post, here("data", "processed", "quant_pre_post_data.csv"))
