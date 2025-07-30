@@ -200,8 +200,7 @@ matching_log <- read_csv(here("data", "raw", "master_log.csv")) |>
 exact_matches <- matching_log |>
   left_join(post_data |>
               select(-name), by = "cleaned_id") |>
-  unite("time_point", time_point.x, time_point.y, sep = ", ", na.rm = TRUE) |>
-  select(id, name, cleaned_id, time_point)
+  unite("time_point", time_point.x, time_point.y, sep = ", ", na.rm = TRUE)  
 
 # step 2:  Add participants with names either in name or id
 # identify unmatched records
@@ -210,59 +209,82 @@ unmatched <- exact_matches |>
 
 # Find name containment matches for unmatched records
 matched <- unmatched |>
-  select(id, cleaned_id, name, time_point) |>
   cross_join(post_data |>
                select(-name) |>
                rename(post_id = cleaned_id,
                       post_time = time_point) |>
                filter(presurvey_check == "Yes")) |>
+  relocate(post_id, .after = time_point) |>
   filter(
     str_detect(post_id, fixed(name, ignore_case = TRUE)) |
     str_detect(name, fixed(post_id, ignore_case = TRUE)) |
     str_detect(post_id, fixed(cleaned_id, ignore_case = TRUE)) |
     str_detect(name, fixed(post_id, ignore_case = TRUE))
-  )|>
-  slice(-c(6, 9, 10, 12, 13)) |>
-  unite("time_point", time_point, post_time, sep = ", ", na.rm = TRUE) |>
-  select(id, name, cleaned_id, time_point)
-
-# step 3: find new post participants and add them to the list 
-new_participants <- post_data |>
-  filter(presurvey_check == "No") |>
-  mutate(# Extract highest existing ID number
-        last_id_num = ifelse(
-          nrow(matching_log) > 0,
-          max(
-            as.numeric(str_extract(matching_log$id, "\\d+")),
-            na.rm = TRUE
-          ),
-          0  # Default if no IDs exist
-        ),
-    id = paste0("Participant ", last_id_num + row_number())) |>
-  select(-last_id_num) |>
-  select(c(time_point:name, id)) |>
-  relocate(id, .before= cleaned_id) |>
-  relocate(id, name, cleaned_id, time_point)
-
-# Create new matching log
-all_data <- bind_rows(exact_matches, matched, new_participants)
-# Then consolidate by participant
-updated_log <- all_data |>
-  group_by(cleaned_id) |>
-  summarize(
-    id = first(id),
-    name = first(name),
-    time_point = paste(unique(time_point), collapse = ", "),
-    .groups = "drop"
   ) |>
-  # Fix cases where "pre, post" appears in different orders
-  mutate(
-    time_point = ifelse(
-      grepl("pre.*post|post.*pre", time_point),
-      "pre, post",
-      time_point
+  # Manually Remove specific matches that 
+  # are duplicates or no available matches.
+  slice(-c(5, 9, 10, 12, 13)) |>
+  unite("time_point", time_point, post_time, sep = ", ", na.rm = TRUE)
+
+# merged <- matched |>
+#   mutate(across(ends_with(".x"), ~ coalesce(get(str_replace(cur_column(), 
+#                                                             "\\.x$", ".y")), 
+#                                             .x))) |>
+#            select(-ends_with(".y")) |>
+#   
+
+merged <- matched %>%
+  # 1. For every .x column, replace with .y if available
+  mutate(across(
+    ends_with(".x"),
+    ~ coalesce(
+      get(str_replace(cur_column(), "\\.x$", ".y")),  # Get matching .y column
+      .x                                             # Fall back to .x
     )
-  )
+  )) %>%
+  # 2. Drop all .y columns (we've merged their values into .x)
+  select(-ends_with(".y")) %>%
+  # 3. Remove .x suffixes from the remaining columns
+  rename_with(~ str_remove(., "\\.x$"), ends_with(".x"))
+  
+# 
+# # step 3: find new post participants and add them to the list 
+# new_participants <- post_data |>
+#   filter(presurvey_check == "No") |>
+#   mutate(# Extract highest existing ID number
+#         last_id_num = ifelse(
+#           nrow(matching_log) > 0,
+#           max(
+#             as.numeric(str_extract(matching_log$id, "\\d+")),
+#             na.rm = TRUE
+#           ),
+#           0  # Default if no IDs exist
+#         ),
+#     id = paste0("Participant ", last_id_num + row_number())) |>
+#   select(-last_id_num) |>
+#   select(c(time_point:name, id)) |>
+#   relocate(id, .before= cleaned_id) |>
+#   relocate(id, name, cleaned_id, time_point)
+# 
+# # Create new matching log
+# all_data <- bind_rows(exact_matches, matched, new_participants)
+# # Then consolidate by participant
+# updated_log <- all_data |>
+#   group_by(cleaned_id) |>
+#   summarize(
+#     id = first(id),
+#     name = first(name),
+#     time_point = paste(unique(time_point), collapse = ", "),
+#     .groups = "drop"
+#   ) |>
+#   # Fix cases where "pre, post" appears in different orders
+#   mutate(
+#     time_point = ifelse(
+#       grepl("pre.*post|post.*pre", time_point),
+#       "pre, post",
+#       time_point
+#     )
+#   )
 
 
 # # Combine results
