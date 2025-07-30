@@ -256,16 +256,59 @@ new_participants <- post_data |>
     id = paste0("Participant ", last_id_num + row_number())) |>
   select(-c(last_id_num, presurvey_check)) |>
   relocate(id, .before= time_point)
-
-# Create new matching log
-all_data <- bind_rows(exact_matches, weird_matches, new_participants) |>
-  relocate(post_id, .after = cleaned_id)
-
+  
+# NEW UPDATED MATCHING LOG
 pre_post_matching_log <- all_data |>
   select(id:presurvey_check)
 
 write_csv(pre_post_matching_log, here("data", "processed", 
                                       "pre_post_matching_log.csv"))
+
+# MERGING Pre & Post Data
+
+# Find intersecting column names automatically
+# Create new matching log
+cleaned_post_data <- bind_rows(exact_matches, weird_matches, new_participants) |>
+  relocate(post_id, .after = id) |>
+  select(-c(post_id, name, cleaned_id)) |>
+  relocate(age:nature, .after = time_point) |>
+  distinct(id, .keep_all = TRUE)
+
+cleaned_pre_data <- matching_log |>
+  left_join(pre_data |> select(-name), by = "cleaned_id") |>
+  mutate(
+    time_point = ifelse(
+      !is.na(time_point.x) & !is.na(time_point.y),
+      paste(time_point.x),
+      coalesce(time_point.x, time_point.y)
+    )
+  ) |>
+  select(-c(time_point.x, time_point.y, name, cleaned_id, matching_id)) |>
+  relocate(time_point, .after = id) |>
+  distinct(id, .keep_all = TRUE)
+
+common_cols <- intersect(names(cleaned_pre_data), names(cleaned_post_data))
+
+# Use in join
+pre_post_data <- full_join(cleaned_pre_data, cleaned_post_data, by = common_cols)
+
+pre_post_data <- pre_post_data |>
+  group_by(id) |>
+  summarize(
+    time_point = paste(
+      unique(unlist(strsplit(time_point, ", "))) %>% 
+        factor(levels = c("pre", "post")) %>% 
+        sort() %>% 
+        as.character(),
+      collapse = ", "
+    ),
+    across(everything(), ~ coalesce(.[!is.na(.)][1])),  # Take first non-NA value
+    .groups = "drop"
+  )
+
+  # # Handle duplicates (if needed)
+  # mutate(across(any_of(common_cols), ~ coalesce(.x, .y))) |>
+  # select(-ends_with(c(".x", ".y")))
 
 # # Combine results
 # pre_post_log <- matching_log |>
