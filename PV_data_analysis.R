@@ -289,16 +289,16 @@ cleaned_pre_data <- matching_log |>
 
 common_cols <- intersect(names(cleaned_pre_data), names(cleaned_post_data))
 
-# Use in join
+# MERGED PRE POST DATA 
 pre_post_data <- full_join(cleaned_pre_data, cleaned_post_data, by = common_cols)
 
 pre_post_data <- pre_post_data |>
   group_by(id) |>
   summarize(
     time_point = paste(
-      unique(unlist(strsplit(time_point, ", "))) %>% 
-        factor(levels = c("pre", "post")) %>% 
-        sort() %>% 
+      unique(unlist(strsplit(time_point, ", "))) |> 
+        factor(levels = c("pre", "post")) |> 
+        sort() |> 
         as.character(),
       collapse = ", "
     ),
@@ -306,137 +306,16 @@ pre_post_data <- pre_post_data |>
     .groups = "drop"
   )
 
-  # # Handle duplicates (if needed)
-  # mutate(across(any_of(common_cols), ~ coalesce(.x, .y))) |>
-  # select(-ends_with(c(".x", ".y")))
+qual_pre_post <- pre_post_data |>
+  select(-c(anxiety:life_direction, 
+            collaborative_atmosphere_scientist:life_direction_post))
 
-# # Combine results
-# pre_post_log <- matching_log |>
-#   # Remove original unmatched records that we're replacing
-#   filter(!(id %in% unmatched$id)) |>
-#   # Add the name-matched records
-#   bind_rows(name_matches) |>
-#   # Add completely new participants from post_data
-#   bind_rows(
-#     post_data |>
-#       anti_join(matching_log, by = "cleaned_id") |> 
-#       anti_join(name_matches, by = c("cleaned_name" = "cleaned_name.y")) |> 
-#       mutate(
-#         id = paste0("Participant ", last_id_num + row_number()))
-#   ) |>
-#   mutate(time_point = time_point.x + ", " + time_point.y)
-#   # Standardize column order
-#   select(id, cleaned_id, cleaned_name.x, time_point, cleaned_name.y)
+quant_pre_post <- pre_post_data |> 
+  select(-c(collaboration_qual: anything_else, 
+            takeaway:global_challenge_insight, 
+            work_challenges_post:anything_else_post))
 
-
-  # inner_join(
-  #   post_data |>
-  #     mutate(contained = TRUE),  # Flag for joining
-  #   by = character()  # Cartesian product
-  # ) |>
-  # filter(
-  #   str_detect(name.y, fixed(name.x, ignore_case = TRUE)) |
-  #     str_detect(name.x, fixed(name.y, ignore_case = TRUE))
-  # ) |>
-  # select(-contained) |>
-  # distinct()  # Avoid duplicates
-  # # Categorize each record
-  # mutate(
-  #   status = ifelse(!is.na(cleaned_id.y) | !is.na(name.y), "confirmed", "new"),
-  #   time_point = ifelse(status == "confirmed", "both", "post")
-  # )
-
-
-# # Step 1: Identify new participants in post_data
-# updated_log <- post_data |>
-#   # anti_join(new_matching_log, by = "cleaned_name") |>
-#   anti_join(updated_log, by = "cleaned_id") |>
-#   select(cleaned_id) |>
-#   distinct() |>
-#   mutate(
-#     # Extract highest existing ID number
-#     last_id_num = ifelse(
-#       nrow(matching_log) > 0,
-#       max(
-#         as.numeric(str_extract(matching_log$id, "\\d+")),
-#         na.rm = TRUE
-#       ),
-#       0  # Default if no IDs exist
-#     ),
-#     # Create new IDs
-#     id = paste0("Participant ", last_id_num + row_number())
-#   )
-
-# # Step 2: Update matching log
-# updated_matching_log <- matching_log |>
-#   # Update existing participants (bring in new names if changed)
-#   rows_update(
-#     post_data |>
-#       select(cleaned_id),
-#     by = "cleaned_id",
-#     unmatched = "ignore"
-#   ) |>
-#   # Add new participants
-#   bind_rows(new_participants) |>
-#   # Optional: Add time_point from post_data
-#   left_join(
-#     post_data |>
-#       select(cleaned_id, time_point),
-#       by = "cleaned_id") |>
-#   # For existing participants with multiple time_points, collapse them
-#   group_by(id, cleaned_id) |>
-#   summarize(
-#     time_points = paste(unique(time_point), collapse = ", "),
-#     .groups = "drop"
-#   )
-
-# # Step 3: Verify
-# list(
-#   existing_updated = nrow(new_matching_log),
-#   new_added = nrow(new_participants),
-#   final_count = nrow(updated_matching_log))
-#   
-
-# matching_data <- here("data", "raw", "Master_Log.csv")
-# 
-# pre_post_data <- c(pre_data, post_data, matching_data)
-# read_csv(pre_post_data, id = "Tine_Point")
-
-
-# # Clean names by removing extra spaces and standardizing case
-# clean_names <- function(x) {
-#   x |>  
-#     tolower() |> 
-#     str_trim() |>
-#     str_replace_all("\\s+", " ")  # collapse multiple spaces
-# }
-
-# # Create fuzzy matched dataset
-# matched_data <- stringdist_full_join(
-#   pre_data |>
-#    mutate(clean_name = clean_names(participant_name)),
-#   post_data |> mutate(clean_name = clean_names(participant_name)),
-#   by = "clean_name",
-#   max_dist = 2,  # allows for small differences
-#   distance_col = "name_distance"
-# ) |> 
-#   arrange(name_distance)
-
-# # Identify exact matches from master log
-# master_matches <- master_log |>
-#   mutate(clean_name = clean_names(name)) |>
-#   right_join(bind_rows(
-#     pre_data |> mutate(clean_name = clean_names(participant_name), source = "pre"),
-#     post_data |> mutate(clean_name = clean_names(participant_name), source = "post")
-#   ), by = "clean_name")
-
-# # Combine automatic and manual matches
-# final_data <- matched_data |>
-#   left_join(master_matches |> select(-source), by = c("clean_name.x" = "clean_name")) |>
-#   mutate(
-#     participant_id = coalesce(participant_number, 
-#                              paste0("NEW_", row_number()))  # create IDs for new participants
-#   )
-
-# # Save results
-# write_csv(final_data, "merged_participant_data.csv")
+# Writing data
+write_csv(pre_post_data, here("data", "processed", "pre_post_data.csv"))
+write_csv(qual_pre_post, here("data", "processed", "qual_pre_post_data.csv"))
+write_csv(quant_pre_post, here("data", "processed", "quant_pre_post_data.csv"))
