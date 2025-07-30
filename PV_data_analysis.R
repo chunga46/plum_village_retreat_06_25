@@ -264,6 +264,8 @@ write_csv(pre_post_matching_log, here("data", "processed",
 
 # Find intersecting column names automatically
 # Create new matching log
+
+# first cleaning pre and post
 cleaned_post_data <- bind_rows(exact_matches, weird_matches, new_participants) |>
   relocate(post_id, .after = id) |>
   select(-c(post_id, name, cleaned_id)) |>
@@ -283,11 +285,12 @@ cleaned_pre_data <- matching_log |>
   relocate(time_point, .after = id) |>
   distinct(id, .keep_all = TRUE)
 
-common_cols <- intersect(names(cleaned_pre_data), names(cleaned_post_data))
-
 # MERGED PRE POST DATA 
+
+common_cols <- intersect(names(cleaned_pre_data), names(cleaned_post_data))
 pre_post_data <- full_join(cleaned_pre_data, cleaned_post_data, by = common_cols)
 
+# removes duplicates and merges them together while also fixing pre post
 pre_post_data <- pre_post_data |>
   group_by(id) |>
   summarize(
@@ -302,6 +305,7 @@ pre_post_data <- pre_post_data |>
     .groups = "drop"
   )
 
+#separating qual and quant for initial independent analysis
 qual_pre_post <- pre_post_data |>
   select(-c(anxiety:life_direction, 
             collaborative_atmosphere_scientist:life_direction_post))
