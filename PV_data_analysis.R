@@ -28,11 +28,11 @@ pacman::p_load(fuzzyjoin, ggplot2, ggtext, knitr, tidyverse, here)
 clean_names <- function(x) {
   x |>
     # Remove accents
-    iconv(to = "ASCII//TRANSLIT") %>%
+    iconv(to = "ASCII//TRANSLIT") |>
     # Remove punctuation and symbols
-    str_replace_all("[^[:alnum:] ]", "") %>%
+    str_replace_all("[^[:alnum:] ]", "") |>
     # Optional: convert to lowercase
-    str_to_lower() %>%
+    str_to_lower() |>
     # Optional: trim whitespace
     str_trim()
 }
@@ -203,6 +203,7 @@ exact_matches <- matching_log |>
   unite("time_point", time_point.x, time_point.y, sep = ", ", na.rm = TRUE)  
 
 # step 2:  Add participants with names either in name or id
+
 # identify unmatched records
 unmatched <- exact_matches |>
   filter(!str_detect(time_point, fixed("post")))
@@ -226,14 +227,7 @@ matched <- unmatched |>
   slice(-c(5, 9, 10, 12, 13)) |>
   unite("time_point", time_point, post_time, sep = ", ", na.rm = TRUE)
 
-# merged <- matched |>
-#   mutate(across(ends_with(".x"), ~ coalesce(get(str_replace(cur_column(), 
-#                                                             "\\.x$", ".y")), 
-#                                             .x))) |>
-#            select(-ends_with(".y")) |>
-#   
-
-merged <- matched %>%
+weird_matches <- matched |>
   # 1. For every .x column, replace with .y if available
   mutate(across(
     ends_with(".x"),
@@ -241,51 +235,37 @@ merged <- matched %>%
       get(str_replace(cur_column(), "\\.x$", ".y")),  # Get matching .y column
       .x                                             # Fall back to .x
     )
-  )) %>%
+  )) |>
   # 2. Drop all .y columns (we've merged their values into .x)
-  select(-ends_with(".y")) %>%
+  select(-ends_with(".y")) |>
   # 3. Remove .x suffixes from the remaining columns
   rename_with(~ str_remove(., "\\.x$"), ends_with(".x"))
   
-# 
-# # step 3: find new post participants and add them to the list 
-# new_participants <- post_data |>
-#   filter(presurvey_check == "No") |>
-#   mutate(# Extract highest existing ID number
-#         last_id_num = ifelse(
-#           nrow(matching_log) > 0,
-#           max(
-#             as.numeric(str_extract(matching_log$id, "\\d+")),
-#             na.rm = TRUE
-#           ),
-#           0  # Default if no IDs exist
-#         ),
-#     id = paste0("Participant ", last_id_num + row_number())) |>
-#   select(-last_id_num) |>
-#   select(c(time_point:name, id)) |>
-#   relocate(id, .before= cleaned_id) |>
-#   relocate(id, name, cleaned_id, time_point)
-# 
-# # Create new matching log
-# all_data <- bind_rows(exact_matches, matched, new_participants)
-# # Then consolidate by participant
-# updated_log <- all_data |>
-#   group_by(cleaned_id) |>
-#   summarize(
-#     id = first(id),
-#     name = first(name),
-#     time_point = paste(unique(time_point), collapse = ", "),
-#     .groups = "drop"
-#   ) |>
-#   # Fix cases where "pre, post" appears in different orders
-#   mutate(
-#     time_point = ifelse(
-#       grepl("pre.*post|post.*pre", time_point),
-#       "pre, post",
-#       time_point
-#     )
-#   )
+# step 3: find new post participants and add them to the list
+new_participants <- post_data |>
+  filter(presurvey_check == "No") |>
+  mutate(# Extract highest existing ID number
+        last_id_num = ifelse(
+          nrow(matching_log) > 0,
+          max(
+            as.numeric(str_extract(matching_log$id, "\\d+")),
+            na.rm = TRUE
+          ),
+          0  # Default if no IDs exist
+        ),
+    id = paste0("Participant ", last_id_num + row_number())) |>
+  select(-c(last_id_num, presurvey_check)) |>
+  relocate(id, .before= time_point)
 
+# Create new matching log
+all_data <- bind_rows(exact_matches, weird_matches, new_participants) |>
+  relocate(post_id, .after = cleaned_id)
+
+pre_post_matching_log <- all_data |>
+  select(id:presurvey_check)
+
+write_csv(pre_post_matching_log, here("data", "processed", 
+                                      "pre_post_matching_log.csv"))
 
 # # Combine results
 # pre_post_log <- matching_log |>
@@ -310,12 +290,12 @@ merged <- matched %>%
   #   post_data |>
   #     mutate(contained = TRUE),  # Flag for joining
   #   by = character()  # Cartesian product
-  # ) %>%
+  # ) |>
   # filter(
   #   str_detect(name.y, fixed(name.x, ignore_case = TRUE)) |
   #     str_detect(name.x, fixed(name.y, ignore_case = TRUE))
-  # ) %>%
-  # select(-contained) %>%
+  # ) |>
+  # select(-contained) |>
   # distinct()  # Avoid duplicates
   # # Categorize each record
   # mutate(
@@ -400,16 +380,16 @@ merged <- matched %>%
 #   arrange(name_distance)
 
 # # Identify exact matches from master log
-# master_matches <- master_log %>%
-#   mutate(clean_name = clean_names(name)) %>%
+# master_matches <- master_log |>
+#   mutate(clean_name = clean_names(name)) |>
 #   right_join(bind_rows(
-#     pre_data %>% mutate(clean_name = clean_names(participant_name), source = "pre"),
-#     post_data %>% mutate(clean_name = clean_names(participant_name), source = "post")
+#     pre_data |> mutate(clean_name = clean_names(participant_name), source = "pre"),
+#     post_data |> mutate(clean_name = clean_names(participant_name), source = "post")
 #   ), by = "clean_name")
 
 # # Combine automatic and manual matches
-# final_data <- matched_data %>%
-#   left_join(master_matches %>% select(-source), by = c("clean_name.x" = "clean_name")) %>%
+# final_data <- matched_data |>
+#   left_join(master_matches |> select(-source), by = c("clean_name.x" = "clean_name")) |>
 #   mutate(
 #     participant_id = coalesce(participant_number, 
 #                              paste0("NEW_", row_number()))  # create IDs for new participants
