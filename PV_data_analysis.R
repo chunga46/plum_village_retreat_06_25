@@ -24,7 +24,7 @@ pacman::p_load(fuzzyjoin, ggplot2, ggtext, knitr, tidyverse, here)
 # LOAD & CLEAN the data -----------------------------------------------------------------------------------------------------------------
 
 
-# Function to clean names to match with their IDs
+# function to clean names to match with their IDs
 clean_names <- function(x) {
   x |>
     # Remove accents
@@ -39,6 +39,7 @@ clean_names <- function(x) {
 
 # Loading Datasets and Cleaning Column Names
 
+#pre data 
 pre_data <- read_csv(here("data", "raw", "PV_pre_raw-data.csv")) |>
   select(2:last_col()) |>
   rename(
@@ -106,18 +107,7 @@ pre_data <- read_csv(here("data", "raw", "PV_pre_raw-data.csv")) |>
          time_point = "pre") |>
   relocate(cleaned_id, .before = name)
 
-# # Match data to add participant ID to
-# matched_data <- pre_clean |>
-#   left_join(
-#     matching_log |> 
-#       select(id, cleaned_id),
-#     by = c("cleaned_id") 
-#   ) |>
-#   relocate(id, .before = age) |> 
-#   distinct(cleaned_id, .keep_all = TRUE) |>
-#   mutate(time_point = "pre") |>
-#   relocate(time_point, .after = id)
-
+# post data
 post_data <- read_csv(here("data", "raw", "PV_post_raw-data.csv")) |>
   select(2:last_col()) |>
   rename(
@@ -196,13 +186,15 @@ matching_log <- read_csv(here("data", "raw", "master_log.csv")) |>
   distinct(cleaned_id, .keep_all = TRUE) |>
   select(-matching_id)
 
+# MATCHING PRE POST Participants  -----------------------------------------------------------------------------------------------------------------
+
 # step 1 includes folks who have filled post data
 exact_matches <- matching_log |>
   left_join(post_data |>
               select(-name), by = "cleaned_id") |>
   unite("time_point", time_point.x, time_point.y, sep = ", ", na.rm = TRUE)  
 
-# step 2:  Add participants with names either in name or id
+# step 2:  Add participants with ids that don't match but are contained in name or id
 
 # identify unmatched records
 unmatched <- exact_matches |>
@@ -227,6 +219,7 @@ matched <- unmatched |>
   slice(-c(5, 9, 10, 12, 13)) |>
   unite("time_point", time_point, post_time, sep = ", ", na.rm = TRUE)
 
+# Add participants with ids that don't match but are contained in name or id
 weird_matches <- matched |>
   # 1. For every .x column, replace with .y if available
   mutate(across(
@@ -258,6 +251,9 @@ new_participants <- post_data |>
   relocate(id, .before= time_point)
   
 # NEW UPDATED MATCHING LOG
+all_data <- bind_rows(exact_matches, weird_matches, new_participants) |>
+  relocate(post_id, .after = cleaned_id)
+
 pre_post_matching_log <- all_data |>
   select(id:presurvey_check)
 
@@ -316,6 +312,6 @@ quant_pre_post <- pre_post_data |>
             work_challenges_post:anything_else_post))
 
 # Writing data
-write_csv(pre_post_data, here("data", "processed", "pre_post_data.csv"))
-write_csv(qual_pre_post, here("data", "processed", "qual_pre_post_data.csv"))
-write_csv(quant_pre_post, here("data", "processed", "quant_pre_post_data.csv"))
+# write_csv(pre_post_data, here("data", "processed", "pre_post_data.csv"))
+# write_csv(qual_pre_post, here("data", "processed", "qual_pre_post_data.csv"))
+# write_csv(quant_pre_post, here("data", "processed", "quant_pre_post_data.csv"))
