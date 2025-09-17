@@ -173,6 +173,79 @@ post_data <- read_csv(here("data", "raw", "PV_post_raw-data.csv")) |>
   mutate(time_point = "post") |>
   relocate(time_point, .after = presurvey_check)
  
+# follow up data
+
+
+follow_up_data <- read_csv(here("data", "raw", "PV_follow_up_raw-data.csv")) |>
+  select(2:last_col()) |>
+  rename(
+    presurvey_post_check = 1,
+    attendance_criteria = 2,
+    matching_id = 3,
+    name = 4,
+    mindful_experi = 5,
+    mindful_style = 6,
+    plum_village_experi = 7,
+    training_experi = 8,
+    training_name_experi = 9,
+    retreat_binary = 10,
+    retreat_type = 11,
+    plum_village_practice = 12,
+    plum_village_sangha = 13,
+    work_sector = 14,
+    area_of_exploration = 15,
+    affiliation = 16,
+    age = 17,
+    gender = 18,
+    country = 19,
+    ethnicity = 20,
+    nature_binary = 21,
+    nature = 22,
+    follow_up_meditation_binary = 23,
+    follow_up_meditation_style_Q = 24,
+    follow_up_changes_Q = 25,
+    anxiety = 26,
+    bordeom = 27,
+    calm = 28,
+    connection = 29,
+    curiosity = 30,
+    despair = 31,
+    frustrations = 32,
+    joy = 33,
+    collaboration = 34,
+    competetition = 35,
+    colleague_wellness_support = 36,
+    community = 37,
+    wellness_enhance_work = 38,
+    community_post = 39,
+    body_aware_post = 40,
+    feelings_aware_post = 41,
+    mind_aware_post = 42,
+    perception_aware_post = 43,
+    happy_post = 44,
+    life_interest_post = 45,
+    life_satisfication_post = 46,
+    society_contribution_post = 47,
+    belonging_post = 48,
+    society_good_post = 49,
+    people_good_post = 50,
+    society_makes_sense_post = 51,
+    personality_satisfication_post = 52,
+    life_responsibility_management_post = 53,
+    warm_trusting_relationship_post = 54,
+    growth_opportunities_post = 55,
+    confidence_ideas_post = 56,
+    life_direction_post = 57,
+    work_challenges_post = 58,
+    anything_else_post = 59) |>
+
+  mutate(cleaned_id = clean_names(matching_id)) |>
+  mutate(name = clean_names(name)) |>
+  select(-c(attendance_criteria, matching_id)) |>
+  relocate(cleaned_id,name, .after = presurvey_post_check) |>
+  mutate(time_point = "follow_up") |>
+  relocate(time_point, .after = presurvey_post_check)
+
 
 # Matching data with participant
 matching_log <- read_csv(here("data", "raw", "master_log.csv")) |>
@@ -186,13 +259,14 @@ matching_log <- read_csv(here("data", "raw", "master_log.csv")) |>
   distinct(cleaned_id, .keep_all = TRUE) |>
   select(-matching_id)
 
-# MATCHING PRE POST Participants  -----------------------------------------------------------------------------------------------------------------
+# MATCHING PRE POST FOLLOW UP Participants  -----------------------------------------------------------------------------------------------------------------
 
 # step 1 includes folks who have filled post data
 exact_matches <- matching_log |>
   left_join(post_data |>
               select(-name), by = "cleaned_id") |>
-  unite("time_point", time_point.x, time_point.y, sep = ", ", na.rm = TRUE)  
+  unite("time_point", time_point.x, time_point.y, sep = ", ", na.rm = TRUE) |>
+  
 
 # step 2:  Add participants with ids that don't match but are contained in name or id
 
@@ -318,6 +392,6 @@ quant_pre_post <- pre_post_data |>
             work_challenges_post:anything_else_post))
 
 # Writing data
-write_csv(pre_post_data, here("data", "processed", "pre_post_data.csv"))
-write_csv(qual_pre_post, here("data", "processed", "qual_pre_post_data.csv"))
-write_csv(quant_pre_post, here("data", "processed", "quant_pre_post_data.csv"))
+# write_csv(pre_post_data, here("data", "processed", "pre_post_data.csv"))
+# write_csv(qual_pre_post, here("data", "processed", "qual_pre_post_data.csv"))
+# write_csv(quant_pre_post, here("data", "processed", "quant_pre_post_data.csv"))
