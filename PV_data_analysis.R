@@ -204,40 +204,41 @@ follow_up_data <- read_csv(here("data", "raw", "PV_follow_up_raw-data.csv")) |>
     follow_up_meditation_binary = 23,
     follow_up_meditation_style_Q = 24,
     follow_up_changes_Q = 25,
-    anxiety = 26,
-    bordeom = 27,
-    calm = 28,
-    connection = 29,
-    curiosity = 30,
-    despair = 31,
-    frustrations = 32,
-    joy = 33,
-    collaboration = 34,
-    competetition = 35,
-    colleague_wellness_support = 36,
-    community = 37,
-    wellness_enhance_work = 38,
-    community_post = 39,
-    body_aware_post = 40,
-    feelings_aware_post = 41,
-    mind_aware_post = 42,
-    perception_aware_post = 43,
-    happy_post = 44,
-    life_interest_post = 45,
-    life_satisfication_post = 46,
-    society_contribution_post = 47,
-    belonging_post = 48,
-    society_good_post = 49,
-    people_good_post = 50,
-    society_makes_sense_post = 51,
-    personality_satisfication_post = 52,
-    life_responsibility_management_post = 53,
-    warm_trusting_relationship_post = 54,
-    growth_opportunities_post = 55,
-    confidence_ideas_post = 56,
-    life_direction_post = 57,
-    work_challenges_post = 58,
-    anything_else_post = 59) |>
+    anxiety_follow_up = 26,
+    bordeom_follow_up = 27,
+    calm_follow_up = 28,
+    connection_follow_up = 29,
+    curiosity_follow_up = 30,
+    despair_follow_up = 31,
+    frustrations_follow_up = 32,
+    joy_follow_up = 33,
+    collaboration_follow_up = 34,
+    competetition_follow_up = 35,
+    colleague_wellness_support_follow_up = 36,
+    community_support_follow_up = 37,
+    wellness_enhance_work_follow_up = 38,
+    body_aware_follow_up = 39,
+    feelings_aware_follow_up = 40,
+    mind_aware_follow_up = 41,
+    perception_aware_follow_up = 42,
+    collaboration_qual_follow_up = 43,
+    competition_qual_follow_up = 44,
+    happy_follow_up = 45,
+    life_interest_follow_up = 46,
+    life_satisfication_follow_up = 47,
+    society_contribution_follow_up = 48,
+    belonging_follow_up = 49,
+    society_good_follow_up = 50,
+    people_good_follow_up = 51,
+    society_makes_sense_follow_up = 52,
+    personality_satisfication_follow_up = 53,
+    life_responsibility_management_follow_up = 54,
+    warm_trusting_relationship_follow_up = 55,
+    growth_opportunities_follow_up = 56,
+    confidence_ideas_follow_up = 57,
+    life_direction_follow_up = 58,
+    work_challenges_follow_up = 59,
+    anything_else_follow_up = 60) |>
 
   mutate(cleaned_id = clean_names(matching_id)) |>
   mutate(name = clean_names(name)) |>
@@ -262,11 +263,18 @@ matching_log <- read_csv(here("data", "raw", "master_log.csv")) |>
 # MATCHING PRE POST FOLLOW UP Participants  -----------------------------------------------------------------------------------------------------------------
 
 # step 1 includes folks who have filled post data
-exact_matches <- matching_log |>
+
+exact_matches_post <- matching_log |>
   left_join(post_data |>
               select(-name), by = "cleaned_id") |>
-  unite("time_point", time_point.x, time_point.y, sep = ", ", na.rm = TRUE) |>
-  
+  unite("time_point", time_point.x, time_point.y, sep = ", ", na.rm = TRUE)
+
+# exact_matches_follow <- exact_matches_post |>
+#   left_join(follow_up_data |>
+#               select(-c(name:nature)), by = "cleaned_id") |>
+#   unite("time_point", time_point.x, time_point.y, sep = ", ", na.rm = TRUE)
+# multiple columns have the same name and are being duplicated.
+# I removed the repeated columns and added follow up to the new columns
 
 # step 2:  Add participants with ids that don't match but are contained in name or id
 
@@ -274,7 +282,10 @@ exact_matches <- matching_log |>
 unmatched <- exact_matches |>
   filter(!str_detect(time_point, fixed("post")))
 
-# Find name containment matches for unmatched records
+# unmatched_follow <- exact_matches |>
+#   filter(!str_detect(time_point, fixed("follow_up")))
+
+# Find name matches for unmatched records
 matched <- unmatched |>
   cross_join(post_data |>
                select(-name) |>
@@ -288,7 +299,7 @@ matched <- unmatched |>
     str_detect(post_id, fixed(cleaned_id, ignore_case = TRUE)) |
     str_detect(name, fixed(post_id, ignore_case = TRUE))
   ) |>
-  # Manually Remove specific matches that 
+  # Manually Remove specific matches that
   # are duplicates or no available matches.
   slice(-c(5, 9, 10, 12, 13)) |>
   unite("time_point", time_point, post_time, sep = ", ", na.rm = TRUE)
@@ -307,7 +318,7 @@ weird_matches <- matched |>
   select(-ends_with(".y")) |>
   # 3. Remove .x suffixes from the remaining columns
   rename_with(~ str_remove(., "\\.x$"), ends_with(".x"))
-  
+
 # step 3: find new post participants and add them to the list
 new_participants <- post_data |>
   filter(presurvey_check == "No") |>
@@ -323,73 +334,73 @@ new_participants <- post_data |>
     id = paste0("Participant ", last_id_num + row_number())) |>
   select(-c(last_id_num, presurvey_check)) |>
   relocate(id, .before= time_point)
-  
+
 # NEW UPDATED MATCHING LOG
 all_data <- bind_rows(exact_matches, weird_matches, new_participants) |>
   relocate(post_id, .after = cleaned_id)
 
 pre_post_matching_log <- all_data |>
   select(id:presurvey_check)
-
-write_csv(pre_post_matching_log, here("data", "processed", 
-                                      "pre_post_matching_log.csv"))
-
-# MERGING Pre & Post Data
-
-# Find intersecting column names automatically
-# Create new matching log
-
-# first cleaning pre and post
-cleaned_post_data <- bind_rows(exact_matches, weird_matches, new_participants) |>
-  relocate(post_id, .after = id) |>
-  select(-c(post_id, name, cleaned_id)) |>
-  relocate(age:nature, .after = time_point) |>
-  distinct(id, .keep_all = TRUE)
-
-cleaned_pre_data <- matching_log |>
-  left_join(pre_data |> select(-name), by = "cleaned_id") |>
-  mutate(
-    time_point = ifelse(
-      !is.na(time_point.x) & !is.na(time_point.y),
-      paste(time_point.x),
-      coalesce(time_point.x, time_point.y)
-    )
-  ) |>
-  select(-c(time_point.x, time_point.y, name, cleaned_id, matching_id)) |>
-  relocate(time_point, .after = id) |>
-  distinct(id, .keep_all = TRUE)
-
-# MERGED PRE POST DATA 
-
-common_cols <- intersect(names(cleaned_pre_data), names(cleaned_post_data))
-pre_post_data <- full_join(cleaned_pre_data, cleaned_post_data, by = common_cols)
-  #person did not enter name and has not consented
-
-# removes duplicates and merges them together while also fixing pre post
-pre_post_data <- pre_post_data |>
-  group_by(id) |>
-  summarize(
-    time_point = paste(
-      unique(unlist(strsplit(time_point, ", "))) |> 
-        factor(levels = c("pre", "post")) |> 
-        sort() |> 
-        as.character(),
-      collapse = ", "
-    ),
-    across(everything(), ~ coalesce(.[!is.na(.)][1])),  # Take first non-NA value
-    .groups = "drop"
-  ) |>
-  slice(-c(11)) 
-
-#separating qual and quant for initial independent analysis
-qual_pre_post <- pre_post_data |>
-  select(-c(anxiety:life_direction, 
-            collaborative_atmosphere_scientist:life_direction_post))
-
-quant_pre_post <- pre_post_data |> 
-  select(-c(collaboration_qual: anything_else, 
-            takeaway:global_challenge_insight, 
-            work_challenges_post:anything_else_post))
+# 
+# write_csv(pre_post_matching_log, here("data", "processed",
+#                                       "pre_post_matching_log.csv"))
+# 
+# # MERGING Pre & Post Data
+# 
+# # Find intersecting column names automatically
+# # Create new matching log
+# 
+# # first cleaning pre and post
+# cleaned_post_data <- bind_rows(exact_matches, weird_matches, new_participants) |>
+#   relocate(post_id, .after = id) |>
+#   select(-c(post_id, name, cleaned_id)) |>
+#   relocate(age:nature, .after = time_point) |>
+#   distinct(id, .keep_all = TRUE)
+# 
+# cleaned_pre_data <- matching_log |>
+#   left_join(pre_data |> select(-name), by = "cleaned_id") |>
+#   mutate(
+#     time_point = ifelse(
+#       !is.na(time_point.x) & !is.na(time_point.y),
+#       paste(time_point.x),
+#       coalesce(time_point.x, time_point.y)
+#     )
+#   ) |>
+#   select(-c(time_point.x, time_point.y, name, cleaned_id, matching_id)) |>
+#   relocate(time_point, .after = id) |>
+#   distinct(id, .keep_all = TRUE)
+# 
+# # MERGED PRE POST DATA 
+# 
+# common_cols <- intersect(names(cleaned_pre_data), names(cleaned_post_data))
+# pre_post_data <- full_join(cleaned_pre_data, cleaned_post_data, by = common_cols)
+#   #person did not enter name and has not consented
+# 
+# # removes duplicates and merges them together while also fixing pre post
+# pre_post_data <- pre_post_data |>
+#   group_by(id) |>
+#   summarize(
+#     time_point = paste(
+#       unique(unlist(strsplit(time_point, ", "))) |> 
+#         factor(levels = c("pre", "post")) |> 
+#         sort() |> 
+#         as.character(),
+#       collapse = ", "
+#     ),
+#     across(everything(), ~ coalesce(.[!is.na(.)][1])),  # Take first non-NA value
+#     .groups = "drop"
+#   ) |>
+#   slice(-c(11)) 
+# 
+# #separating qual and quant for initial independent analysis
+# qual_pre_post <- pre_post_data |>
+#   select(-c(anxiety:life_direction, 
+#             collaborative_atmosphere_scientist:life_direction_post))
+# 
+# quant_pre_post <- pre_post_data |> 
+#   select(-c(collaboration_qual: anything_else, 
+#             takeaway:global_challenge_insight, 
+#             work_challenges_post:anything_else_post))
 
 # Writing data
 # write_csv(pre_post_data, here("data", "processed", "pre_post_data.csv"))
