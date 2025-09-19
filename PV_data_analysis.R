@@ -175,7 +175,6 @@ post_data <- read_csv(here("data", "raw", "PV_post_raw-data.csv")) |>
  
 # follow up data
 
-
 follow_up_data <- read_csv(here("data", "raw", "PV_follow_up_raw-data.csv")) |>
   select(2:last_col()) |>
   rename(
@@ -264,26 +263,16 @@ matching_log <- read_csv(here("data", "raw", "master_log.csv")) |>
 
 # step 1 includes folks who have filled post data
 
-exact_matches_post <- matching_log |>
+exact_matches <- matching_log |>
   left_join(post_data |>
               select(-name), by = "cleaned_id") |>
   unite("time_point", time_point.x, time_point.y, sep = ", ", na.rm = TRUE)
-
-# exact_matches_follow <- exact_matches_post |>
-#   left_join(follow_up_data |>
-#               select(-c(name:nature)), by = "cleaned_id") |>
-#   unite("time_point", time_point.x, time_point.y, sep = ", ", na.rm = TRUE)
-# multiple columns have the same name and are being duplicated.
-# I removed the repeated columns and added follow up to the new columns
 
 # step 2:  Add participants with ids that don't match but are contained in name or id
 
 # identify unmatched records
 unmatched <- exact_matches |>
   filter(!str_detect(time_point, fixed("post")))
-
-# unmatched_follow <- exact_matches |>
-#   filter(!str_detect(time_point, fixed("follow_up")))
 
 # Find name matches for unmatched records
 matched <- unmatched |>
@@ -341,6 +330,155 @@ all_data <- bind_rows(exact_matches, weird_matches, new_participants) |>
 
 pre_post_matching_log <- all_data |>
   select(id:presurvey_check)
+
+write_csv(pre_post_matching_log, here("data", "processed",
+                                      "pre_post_matching_log.csv"))
+
+# MERGING Pre & Post Data
+
+# Find intersecting column names automatically
+# Create new matching log
+
+# first cleaning pre and post
+cleaned_post_data <- bind_rows(exact_matches, weird_matches, new_participants) |>
+  relocate(post_id, .after = id) |>
+  select(-c(post_id, name, cleaned_id)) |>
+  relocate(age:nature, .after = time_point) |>
+  distinct(id, .keep_all = TRUE)
+
+cleaned_pre_data <- matching_log |>
+  left_join(pre_data |> select(-name), by = "cleaned_id") |>
+  mutate(
+    time_point = ifelse(
+      !is.na(time_point.x) & !is.na(time_point.y),
+      paste(time_point.x),
+      coalesce(time_point.x, time_point.y)
+    )
+  ) |>
+  select(-c(time_point.x, time_point.y, name, cleaned_id, matching_id)) |>
+  relocate(time_point, .after = id) |>
+  distinct(id, .keep_all = TRUE)
+
+# MERGED PRE POST DATA
+
+common_cols <- intersect(names(cleaned_pre_data), names(cleaned_post_data))
+pre_post_data <- full_join(cleaned_pre_data, cleaned_post_data, by = common_cols)
+  #person did not enter name and has not consented
+
+# removes duplicates and merges them together while also fixing pre post
+pre_post_data <- pre_post_data |>
+  group_by(id) |>
+  summarize(
+    time_point = paste(
+      unique(unlist(strsplit(time_point, ", "))) |>
+        factor(levels = c("pre", "post")) |>
+        sort() |>
+        as.character(),
+      collapse = ", "
+    ),
+    across(everything(), ~ coalesce(.[!is.na(.)][1])),  # Take first non-NA value
+    .groups = "drop"
+  ) |>
+  slice(-c(11))
+
+#separating qual and quant for initial independent analysis
+qual_pre_post <- pre_post_data |>
+  select(-c(anxiety:life_direction,
+            collaborative_atmosphere_scientist:life_direction_post))
+
+quant_pre_post <- pre_post_data |>
+  select(-c(collaboration_qual: anything_else,
+            takeaway:global_challenge_insight,
+            work_challenges_post:anything_else_post))
+
+# Writing data
+# write_csv(pre_post_data, here("data", "processed", "pre_post_data.csv"))
+# write_csv(qual_pre_post, here("data", "processed", "qual_pre_post_data.csv"))
+
+# MATCHING POST FOLLOW UP Participants  -----------------------------------------------------------------------------------------------------------------
+
+# Matching data with participant
+matching_log_follow <- read_csv(here("data", "processed", "pre_post_matching_log.csv"))
+
+# step 1 includes folks who have filled post data
+
+# exact_matches_post <- matching_log |>
+#   left_join(post_data |>
+#               select(-name), by = "cleaned_id") |>
+#   unite("time_point", time_point.x, time_point.y, sep = ", ", na.rm = TRUE)
+
+# exact_matches_follow <- exact_matches_post |>
+#   left_join(follow_up_data |>
+#               select(-c(name:nature)), by = "cleaned_id") |>
+#   unite("time_point", time_point.x, time_point.y, sep = ", ", na.rm = TRUE)
+# multiple columns have the same name and are being duplicated.
+# I removed the repeated columns and added follow up to the new columns
+
+# step 2:  Add participants with ids that don't match but are contained in name or id
+
+# # identify unmatched records
+# unmatched <- exact_matches |>
+#   filter(!str_detect(time_point, fixed("post")))
+# 
+# # unmatched_follow <- exact_matches |>
+# #   filter(!str_detect(time_point, fixed("follow_up")))
+# 
+# # Find name matches for unmatched records
+# matched <- unmatched |>
+#   cross_join(post_data |>
+#                select(-name) |>
+#                rename(post_id = cleaned_id,
+#                       post_time = time_point) |>
+#                filter(presurvey_check == "Yes")) |>
+#   relocate(post_id, .after = time_point) |>
+#   filter(
+#     str_detect(post_id, fixed(name, ignore_case = TRUE)) |
+#       str_detect(name, fixed(post_id, ignore_case = TRUE)) |
+#       str_detect(post_id, fixed(cleaned_id, ignore_case = TRUE)) |
+#       str_detect(name, fixed(post_id, ignore_case = TRUE))
+#   ) |>
+#   # Manually Remove specific matches that
+#   # are duplicates or no available matches.
+#   slice(-c(5, 9, 10, 12, 13)) |>
+#   unite("time_point", time_point, post_time, sep = ", ", na.rm = TRUE)
+# 
+# # Add participants with ids that don't match but are contained in name or id
+# weird_matches <- matched |>
+#   # 1. For every .x column, replace with .y if available
+#   mutate(across(
+#     ends_with(".x"),
+#     ~ coalesce(
+#       get(str_replace(cur_column(), "\\.x$", ".y")),  # Get matching .y column
+#       .x                                             # Fall back to .x
+#     )
+#   )) |>
+#   # 2. Drop all .y columns (we've merged their values into .x)
+#   select(-ends_with(".y")) |>
+#   # 3. Remove .x suffixes from the remaining columns
+#   rename_with(~ str_remove(., "\\.x$"), ends_with(".x"))
+# 
+# # step 3: find new post participants and add them to the list
+# new_participants <- post_data |>
+#   filter(presurvey_check == "No") |>
+#   mutate(# Extract highest existing ID number
+#     last_id_num = ifelse(
+#       nrow(matching_log) > 0,
+#       max(
+#         as.numeric(str_extract(matching_log$id, "\\d+")),
+#         na.rm = TRUE
+#       ),
+#       0  # Default if no IDs exist
+#     ),
+#     id = paste0("Participant ", last_id_num + row_number())) |>
+#   select(-c(last_id_num, presurvey_check)) |>
+#   relocate(id, .before= time_point)
+# 
+# # NEW UPDATED MATCHING LOG
+# all_data <- bind_rows(exact_matches, weird_matches, new_participants) |>
+#   relocate(post_id, .after = cleaned_id)
+# 
+# pre_post_matching_log <- all_data |>
+#   select(id:presurvey_check)
 # 
 # write_csv(pre_post_matching_log, here("data", "processed",
 #                                       "pre_post_matching_log.csv"))
