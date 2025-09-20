@@ -290,28 +290,16 @@ matched <- unmatched |>
     str_detect(post_id, fixed(name, ignore_case = TRUE)) |
     str_detect(name, fixed(post_id, ignore_case = TRUE)) |
     str_detect(post_id, fixed(cleaned_id, ignore_case = TRUE)) |
-    str_detect(name, fixed(post_id, ignore_case = TRUE))
+    str_detect(cleaned_id, fixed(post_id, ignore_case = TRUE)) 
   ) |>
   # Manually Remove specific matches that
-  # are duplicates or no available matches.
+  # All 5 removed matches are instances where post_id is incorrectly matched 
+  # to either cleaned_id or to name
   slice(-c(5, 9, 10, 12, 13)) |>
-  unite("time_point", time_point, post_time, sep = ", ", na.rm = TRUE)
-
-# # Add participants with ids that don't match but are contained in name or id
-# matched <- unfiltered_matched |>
-#   # 1. For every .x column, replace with .y if available
-#   mutate(across(
-#     ends_with(".x"),
-#     ~ coalesce(
-#       get(str_replace(cur_column(), "\\.x$", ".y")),  # Get matching .y column
-#       .x                                             # Fall back to .x
-#     )
-#   )) |>
-#   # 2. Drop all .y columns (we've merged their values into .x)
-#   select(-ends_with(".y")) |>
-#   # 3. Remove .x suffixes from the remaining columns
-#   rename_with(~ str_remove(., "\\.x$"), ends_with(".x"))
-
+  mutate(time_point = "pre, post") |>
+  unite("cleaned_id", cleaned_id, post_id, sep = "; ", na.rm = TRUE)
+  #Merge timepoints and id's together
+ 
 # step 3: find new post participants and add them to the list
 new_participants <- post_data |>
   filter(presurvey_check == "No") |>
@@ -328,10 +316,10 @@ new_participants <- post_data |>
   select(-c(last_id_num, presurvey_check)) |>
   relocate(id, .before= time_point)
 
-# NEW UPDATED MATCHING LOG
-all_data <- bind_rows(exact_matches, matched, new_participants) |>
-  relocate(post_id, .after = cleaned_id)
+#merge pre and pre post participants
+all_data <- bind_rows(exact_matches, matched, new_participants)
 
+#group to remove redundancies
 merged <- all_data |>
   #group to remove outdated duplicates
   group_by(id) |>
@@ -341,12 +329,12 @@ merged <- all_data |>
   arrange(id_num) |>
   select(-id_num)
 
+# NEW UPDATED MATCHING LOG
 pre_post_matching_log <- merged |>
   select(id:presurvey_check)
 
-write_csv(pre_post_matching_log, here("data", "processed",
-                                      "pre_post_matching_log.csv"))
-
+# write_csv(pre_post_matching_log, here("data", "processed",
+#                                       "pre_post_matching_log.csv"))
 # MERGING Pre & Post Data
 
 # Find intersecting column names automatically
@@ -354,22 +342,12 @@ write_csv(pre_post_matching_log, here("data", "processed",
 
 # first cleaning pre and post
 cleaned_post_data <- merged |>
-  relocate(post_id, .after = id) |>
-  select(-c(post_id, name, cleaned_id)) |>
+  select(-c(name, cleaned_id)) |>
   relocate(age:nature, .after = time_point) 
 
 cleaned_pre_data <- matching_log |>
-  left_join(pre_data |> select(-name), by = "cleaned_id") |>
-  mutate(
-    time_point = ifelse(
-      !is.na(time_point.x) & !is.na(time_point.y),
-      paste(time_point.x),
-      coalesce(time_point.x, time_point.y)
-    )
-  ) |>
-  select(-c(time_point.x, time_point.y, name, cleaned_id, matching_id)) |>
-  relocate(time_point, .after = id) |>
-  distinct(id, .keep_all = TRUE)
+  left_join(pre_data |> select(-c(name:matching_id, time_point)), 
+            by = "cleaned_id") 
 
 # MERGED PRE POST DATA
 
@@ -377,9 +355,11 @@ common_cols <- intersect(names(cleaned_pre_data), names(cleaned_post_data))
 pre_post_data <- full_join(cleaned_pre_data, cleaned_post_data, by = common_cols) |>
   group_by(id) |>
   summarize(
-    across(age:anything_else, ~ first(.x)),
-    across(c(time_point, presurvey_check:anything_else_post), ~ nth(.x, 2))
-  ) |>
+    across(age:anything_else, 
+           ~ if_else(n() >= 2, first(.x), first(.x))),
+    across(c(time_point, presurvey_check:anything_else_post), 
+           ~ if_else(n() >= 2, nth(.x, 2), first(.x)))
+  )|>
   ungroup() |>
   mutate(id_num = parse_number(id)) |>
   arrange(id_num) |>
@@ -400,8 +380,8 @@ quant_pre_post <- pre_post_data |>
             work_challenges_post:anything_else_post))
 
 # Writing data
-# write_csv(pre_post_data, here("data", "processed", "pre_post_data.csv"))
-# write_csv(qual_pre_post, here("data", "processed", "qual_pre_post_data.csv"))
+write_csv(pre_post_data, here("data", "processed", "pre_post_data.csv"))
+write_csv(qual_pre_post, here("data", "processed", "qual_pre_post_data.csv"))
 
 # MATCHING POST FOLLOW UP Participants  -----------------------------------------------------------------------------------------------------------------
 
@@ -422,11 +402,8 @@ unmatched_follow <- exact_matches_follow |>
   filter(!str_detect(time_point, fixed("follow_up"))) |>
   select(id:time_point)
 
-# Cross join compares every row combination including itself.
-# Use cross join to compare 
-# Find name matches for unmatched records
-
-all_matches <- expand_grid(unmatched_follow, follow_up_data |>
+matched_follow <- unmatched_follow |> 
+  cross_join(follow_up_data |>
                              select(-name) |>
                              rename(follow_id = cleaned_id,
                                     follow_time = time_point) |>
@@ -435,69 +412,49 @@ all_matches <- expand_grid(unmatched_follow, follow_up_data |>
       str_detect(cleaned_id, fixed(follow_id, ignore_case = TRUE)) |
       str_detect(name,       fixed(follow_id, ignore_case = TRUE)) |
       str_detect(follow_id,  fixed(cleaned_id, ignore_case = TRUE)) |
-      str_detect(follow_id,  fixed(name, ignore_case = TRUE)) |
-      str_detect(follow_id,  fixed(post_id, ignore_case = TRUE))
-  )
-
-matched_follow <- unmatched_follow |>
-  cross_join(follow_up_data |>
-               select(-name) |>
-               rename(follow_id = cleaned_id,
-                      follow_time = time_point) |>
-               filter(presurvey_post_check == "Yes")) |>
-  relocate(follow_id, .after = time_point) |>
-  filter(
-    str_detect(follow_id, fixed(name, ignore_case = TRUE)) |
-      str_detect(name, fixed(follow_id, ignore_case = TRUE)) |
-      str_detect(follow_id, fixed(cleaned_id, ignore_case = TRUE)) |
-      str_detect(name, fixed(follow_id, ignore_case = TRUE))
+      str_detect(follow_id,  fixed(name, ignore_case = TRUE)) 
   ) |>
-  # Manually Remove specific matches that
-  # # are duplicates or no available matches.
-  # slice(-c(4, 7, 8, 10)) |>
-  unite("time_point", time_point, follow_time, sep = ", ", na.rm = TRUE)
+  relocate(follow_id, .after = cleaned_id) |>
+  #remove specific matches that are invalid. 
+  slice(-c(4, 8, 9, 11, 12))
+  #E.x 1 case of same name id, but for wrong participant, 
+  # follow_id incorrectly matched
 
-# # Add participants with ids that don't match but are contained in name or id
-# weird_matches <- matched |>
-#   # 1. For every .x column, replace with .y if available
-#   mutate(across(
-#     ends_with(".x"),
-#     ~ coalesce(
-#       get(str_replace(cur_column(), "\\.x$", ".y")),  # Get matching .y column
-#       .x                                             # Fall back to .x
-#     )
-#   )) |>
-#   # 2. Drop all .y columns (we've merged their values into .x)
-#   select(-ends_with(".y")) |>
-#   # 3. Remove .x suffixes from the remaining columns
-#   rename_with(~ str_remove(., "\\.x$"), ends_with(".x"))
-# 
-# # step 3: find new post participants and add them to the list
-# new_participants <- post_data |>
-#   filter(presurvey_check == "No") |>
-#   mutate(# Extract highest existing ID number
-#     last_id_num = ifelse(
-#       nrow(matching_log) > 0,
-#       max(
-#         as.numeric(str_extract(matching_log$id, "\\d+")),
-#         na.rm = TRUE
-#       ),
-#       0  # Default if no IDs exist
-#     ),
-#     id = paste0("Participant ", last_id_num + row_number())) |>
-#   select(-c(last_id_num, presurvey_check)) |>
-#   relocate(id, .before= time_point)
-# 
-# # NEW UPDATED MATCHING LOG
-# all_data <- bind_rows(exact_matches, weird_matches, new_participants) |>
-#   relocate(post_id, .after = cleaned_id)
-# 
-# pre_post_matching_log <- all_data |>
-#   select(id:presurvey_check)
-# 
-# write_csv(pre_post_matching_log, here("data", "processed",
-#                                       "pre_post_matching_log.csv"))
-# 
+# step 3: find new post participants and add them to the list
+new_participants_follow <- follow_up_data |>
+  filter(presurvey_post_check == "No") |>
+  mutate(# Extract highest existing ID number
+    last_id_num = ifelse(
+      nrow(matching_log) > 0,
+      max(
+        as.numeric(str_extract(matching_log$id, "\\d+")),
+        na.rm = TRUE
+      ),
+      0  # Default if no IDs exist
+    ),
+    id = paste0("Participant ", last_id_num + row_number())) |>
+  select(-c(last_id_num, presurvey_post_check)) |>
+  relocate(id, .before= time_point)
+
+# NEW UPDATED MATCHING LOG
+all_data_follow <- bind_rows(exact_matches_follow, matched_follow
+                             , new_participants_follow) |>
+  relocate(follow_id, .after = cleaned_id)
+
+merged_follow <- all_data_follow |>
+  #group to remove outdated duplicates
+  group_by(id) |>
+  slice_tail(n=1) |>
+  ungroup() |>
+  mutate(id_num = parse_number(id)) |>
+  arrange(id_num) |>
+  select(-id_num)
+
+final_matching_log <- merged_follow |>
+  select(id:presurvey_check)
+
+write_csv(final_matching_log, here("data", "processed",
+                                      "pre_post_follow_matching_log.csv"))
 # # MERGING Pre & Post Data
 # 
 # # Find intersecting column names automatically
