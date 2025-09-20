@@ -419,26 +419,43 @@ exact_matches_follow <- matching_log_follow |>
 # step 2:  Add participants with ids that don't match but are contained in name or id
 
 unmatched_follow <- exact_matches_follow |>
-  filter(!str_detect(time_point, fixed("follow_up")))
-# 
-# # Find name matches for unmatched records
-# matched_follow <- unmatched_follow |>
-#   cross_join(post_data |>
-#                select(-name) |>
-#                rename(post_id = cleaned_id,
-#                       post_time = time_point) |>
-#                filter(presurvey_check == "Yes")) |>
-#   relocate(post_id, .after = time_point) |>
-#   filter(
-#     str_detect(post_id, fixed(name, ignore_case = TRUE)) |
-#       str_detect(name, fixed(post_id, ignore_case = TRUE)) |
-#       str_detect(post_id, fixed(cleaned_id, ignore_case = TRUE)) |
-#       str_detect(name, fixed(post_id, ignore_case = TRUE))
-#   ) |>
-#   # Manually Remove specific matches that
-#   # are duplicates or no available matches.
-#   # slice(-c(5, 9, 10, 12, 13)) |>
-#   unite("time_point", time_point, post_time, sep = ", ", na.rm = TRUE)
+  filter(!str_detect(time_point, fixed("follow_up"))) |>
+  select(id:time_point)
+
+# Cross join compares every row combination including itself.
+# Use cross join to compare 
+# Find name matches for unmatched records
+
+all_matches <- expand_grid(unmatched_follow, follow_up_data |>
+                             select(-name) |>
+                             rename(follow_id = cleaned_id,
+                                    follow_time = time_point) |>
+                             filter(presurvey_post_check == "Yes")) |>
+  filter(
+      str_detect(cleaned_id, fixed(follow_id, ignore_case = TRUE)) |
+      str_detect(name,       fixed(follow_id, ignore_case = TRUE)) |
+      str_detect(follow_id,  fixed(cleaned_id, ignore_case = TRUE)) |
+      str_detect(follow_id,  fixed(name, ignore_case = TRUE)) |
+      str_detect(follow_id,  fixed(post_id, ignore_case = TRUE))
+  )
+
+matched_follow <- unmatched_follow |>
+  cross_join(follow_up_data |>
+               select(-name) |>
+               rename(follow_id = cleaned_id,
+                      follow_time = time_point) |>
+               filter(presurvey_post_check == "Yes")) |>
+  relocate(follow_id, .after = time_point) |>
+  filter(
+    str_detect(follow_id, fixed(name, ignore_case = TRUE)) |
+      str_detect(name, fixed(follow_id, ignore_case = TRUE)) |
+      str_detect(follow_id, fixed(cleaned_id, ignore_case = TRUE)) |
+      str_detect(name, fixed(follow_id, ignore_case = TRUE))
+  ) |>
+  # Manually Remove specific matches that
+  # # are duplicates or no available matches.
+  # slice(-c(4, 7, 8, 10)) |>
+  unite("time_point", time_point, follow_time, sep = ", ", na.rm = TRUE)
 
 # # Add participants with ids that don't match but are contained in name or id
 # weird_matches <- matched |>
