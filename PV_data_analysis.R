@@ -28,6 +28,17 @@ clean_names <- function(x) {
     str_trim()
 }
 
+# function to remove duplicates in data
+remove_dupes <- function(data, vars) {
+  data |>
+    mutate(across(all_of(vars),
+                  ~ duplicated(.x , fromLast = TRUE) & !is.na(.x),
+                  .names = "dup_{col}")) |>
+    filter(!if_any(starts_with("dup_"), identity)) |>
+    select(-starts_with("dup_"))
+}
+
+
 # Loading Datasets and Cleaning Column Names
 # renaming all columns. For list of survey questions, please see data/survey to
 # find access to pre, post and follow up questions.
@@ -104,6 +115,12 @@ pre_data <- read_csv(here("data", "raw", "PV_pre_raw-data.csv")) |>
   relocate(cleaned_id, name, time_point) |>
   select(-matching_id)
 
+pre_data <- remove_dupes(pre_data, c("cleaned_id", "name")) 
+pre_data <- pre_data |>
+  mutate(
+    id = paste0("Participant ", row_number())) |>
+  relocate(id, .before= time_point)
+
 # post data
 # renaming all columns 
 post_data <- read_csv(here("data", "raw", "PV_post_raw-data.csv")) |>
@@ -173,6 +190,8 @@ post_data <- read_csv(here("data", "raw", "PV_post_raw-data.csv")) |>
   relocate(c(cleaned_id,name), .after = presurvey_check) |>
   mutate(time_point = "post") |>
   relocate(time_point, .before = cleaned_id)
+
+post_data_dupe <- remove_dupes(post_data, c("cleaned_id", "name")) 
 # follow up data
 
 # renaming all columns 
@@ -248,22 +267,15 @@ follow_up_data <- read_csv(here("data", "raw", "PV_follow_up_raw-data.csv")) |>
   #change order of columns for readability and add new column with follow up time_point
   relocate(cleaned_id,name, .after = presurvey_post_check) |>
   mutate(time_point = "follow_up") 
-  
-# Matching data with participants
+
+follow_up_data_dupe <- remove_dupes(follow_up_data, c("cleaned_id", "name")) 
+
 matching_log <- pre_data |>
-  mutate(# Extract highest existing ID number
-    id = paste0("Participant ", row_number())) |>
-  relocate(id, .after= time_point) |>
-  select(c(1:4)) |>
-  #remove duplicates by keeping the latest response. The responses are arranged
-  # from earliest to latest submitted responses. Removed duplicates based on 
-  # participant id and their name. We used group_by twice 
-  mutate(
-    dup_cleaned_id = duplicated(cleaned_id, fromLast = TRUE),
-    dup_name = duplicated(name, fromLast = TRUE)
-  ) |>
-  filter(!(dup_cleaned_id | dup_name)) |>
-  select(-dup_cleaned_id, -dup_name)
+  select(c(id, time_point, cleaned_id, name))
+
+
+#Used to create new updated matching log. For now it is commented out
+# write_csv(matching_log, here("data", "processed", "matching_log.csv"))
 
 # MATCHING PRE POST FOLLOW UP Participants  -----------------------------------------------------------------------------------------------------------------
 
