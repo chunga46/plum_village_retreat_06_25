@@ -1,8 +1,10 @@
-# Name: Plum Village Project 
-# Last Modified: July 27 2025
+# Name: Plum Village Retreat Exploratory Project 
+# Last Modified: October 4 2025
 
 
 # LOAD LIBRARIES -----------------------------------------------------------------------------------------------------------------
+# This section includes the list of libraries used in this project. Running
+# the code will install these packages. 
 
 # List of required packages
 required_packages <- c("fuzzyjoin", "ggplot2", "ggtext", "knitr", "tidyverse", 
@@ -11,20 +13,9 @@ required_packages <- c("fuzzyjoin", "ggplot2", "ggtext", "knitr", "tidyverse",
 if (!require(pacman)) install.packages("pacman")
 pacman::p_load(fuzzyjoin, ggplot2, ggtext, knitr, tidyverse, here)
 
-# load_or_install <- function(pkg) {
-#   if (!require(pkg, character.only = TRUE)) {
-#     install.packages(pkg)
-#     library(pkg, character.only = TRUE)
-#   }
-# }
-# 
-# # Install missing packages and load all packages
-# invisible(lapply(required_packages, load_or_install))
-
 # LOAD & CLEAN the data -----------------------------------------------------------------------------------------------------------------
 
-
-# function to clean names to match with their IDs
+# function to clean names to help match with participant IDs
 clean_names <- function(x) {
   x |>
     # Remove accents
@@ -38,8 +29,10 @@ clean_names <- function(x) {
 }
 
 # Loading Datasets and Cleaning Column Names
+# renaming all columns. For list of survey questions, please see data/survey to
+# find access to pre, post and follow up questions.
 
-#pre data 
+# pre data renaming all columns
 pre_data <- read_csv(here("data", "raw", "PV_pre_raw-data.csv")) |>
   select(2:last_col()) |>
   rename(
@@ -99,15 +92,20 @@ pre_data <- read_csv(here("data", "raw", "PV_pre_raw-data.csv")) |>
     nature = 54,
     work_challenges = 55,
     anything_else = 56) |>
+  #reorganize columns for easier readability 
   relocate(age:ethnicity, .after = matching_id) |>
   relocate(work_sector:affiliation, .after = ethnicity) |>
   relocate(nature_binary:nature, .after = plum_village_practice) |>
   relocate(happy:life_direction, .after = perception_aware) |>
+  #add timepoint of participants 
+  #remove any whitespace and remove and cases
   mutate(cleaned_id = clean_names(matching_id),
          time_point = "pre") |>
-  relocate(cleaned_id, .before = name)
+  relocate(cleaned_id, name, time_point) |>
+  select(-matching_id)
 
 # post data
+# renaming all columns 
 post_data <- read_csv(here("data", "raw", "PV_post_raw-data.csv")) |>
   select(2:last_col()) |>
   rename(
@@ -161,20 +159,23 @@ post_data <- read_csv(here("data", "raw", "PV_post_raw-data.csv")) |>
     life_direction_post = 48,
     work_challenges_post = 49,
     anything_else_post = 50) |>
+  
+  #filter participants that only participated in the retreat
   filter(attendance_criteria == "Yes") |>
   
-  #this participant did not sign the consent form with their name 
-  # and had to be removed. They entered "yes". 
-  slice(-57) |>
+  #remove any whitespace and remove and cases
   mutate(cleaned_id = clean_names(matching_id)) |>
   mutate(name = clean_names(name)) |>
+  
+  #remove attendance criteria and matching id because these columns are not 
+  #necessary for further cleaning and analysis
   select(-c(attendance_criteria, matching_id)) |>
-  relocate(cleaned_id,name, .after = presurvey_check) |>
+  relocate(c(cleaned_id,name), .after = presurvey_check) |>
   mutate(time_point = "post") |>
-  relocate(time_point, .after = presurvey_check)
- 
+  relocate(time_point, .before = cleaned_id)
 # follow up data
 
+# renaming all columns 
 follow_up_data <- read_csv(here("data", "raw", "PV_follow_up_raw-data.csv")) |>
   select(2:last_col()) |>
   rename(
@@ -238,26 +239,31 @@ follow_up_data <- read_csv(here("data", "raw", "PV_follow_up_raw-data.csv")) |>
     life_direction_follow_up = 58,
     work_challenges_follow_up = 59,
     anything_else_follow_up = 60) |>
-
+  #remove any whitespace and remove and cases
   mutate(cleaned_id = clean_names(matching_id)) |>
   mutate(name = clean_names(name)) |>
+  #remove attendance criteria and matching id because it not necessary for further
+  # analysis
   select(-c(attendance_criteria, matching_id)) |>
+  #change order of columns for readability and add new column with follow up time_point
   relocate(cleaned_id,name, .after = presurvey_post_check) |>
-  mutate(time_point = "follow_up") |>
-  relocate(time_point, .after = presurvey_post_check)
-
-
-# Matching data with participant
-matching_log <- read_csv(here("data", "raw", "master_log.csv")) |>
-  rename(
-    id = 1,
-    name = 2,
-    matching_id = 3) |>
-  mutate(cleaned_id = clean_names(matching_id),
-         name = clean_names(name),
-         time_point = "pre") |>
-  distinct(cleaned_id, .keep_all = TRUE) |>
-  select(-matching_id)
+  mutate(time_point = "follow_up") 
+  
+# Matching data with participants
+matching_log <- pre_data |>
+  mutate(# Extract highest existing ID number
+    id = paste0("Participant ", row_number())) |>
+  relocate(id, .after= time_point) |>
+  select(c(1:4)) |>
+  #remove duplicates by keeping the latest response. The responses are arranged
+  # from earliest to latest submitted responses. Removed duplicates based on 
+  # participant id and their name. We used group_by twice 
+  mutate(
+    dup_cleaned_id = duplicated(cleaned_id, fromLast = TRUE),
+    dup_name = duplicated(name, fromLast = TRUE)
+  ) |>
+  filter(!(dup_cleaned_id | dup_name)) |>
+  select(-dup_cleaned_id, -dup_name)
 
 # MATCHING PRE POST FOLLOW UP Participants  -----------------------------------------------------------------------------------------------------------------
 
@@ -277,7 +283,6 @@ unmatched <- exact_matches |>
   select(id:time_point)
 
 # Cross join compares every row combination including itself.
-# Use cross join to compare 
 # Find name matches for unmatched records
 matched <- unmatched |>
   cross_join(post_data |>
@@ -393,8 +398,7 @@ exact_matches_follow <- matching_log_follow |>
   left_join(follow_up_data |>
               select(-name), by = "cleaned_id") |>
   unite("time_point", time_point.x, time_point.y, sep = ", ", na.rm = TRUE)
-# multiple columns have the same name and are being duplicated.
-# I removed the repeated columns and added follow up to the new columns
+ 
 
 # step 2:  Add participants with ids that don't match but are contained in name or id
 
