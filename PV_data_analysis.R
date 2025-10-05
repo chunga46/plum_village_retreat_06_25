@@ -120,13 +120,14 @@ pre_data <- read_csv(here("data", "raw", "PV_pre_raw-data.csv")) |>
   mutate(cleaned_id = clean_names(matching_id),
          time_point = "pre") |>
   relocate(cleaned_id, name, time_point) |>
-  select(-matching_id)
+  select(-matching_id) 
+  
 
 pre_data <- remove_dupes(pre_data, c("cleaned_id", "name")) 
 pre_data <- pre_data |>
   mutate(
     id = paste0("Participant ", row_number())) |>
-  relocate(id, .before= time_point)
+  relocate(id, .before= time_point) 
 
 # post data
 # renaming all columns 
@@ -313,9 +314,13 @@ matched_test <- unmatched |>
   #sometimes were contained in their name. 
   rowwise() |>
   mutate(
-    match_found  = any(str_split(cleaned_id, "\\s+")[[1]] %in% str_split(post_id, "\\s+")[[1]])) |>
+    match_found  = case_when(
+      cleaned_id == post_id ~ TRUE,
+      str_detect(post_id, paste0("\\b", clean_names(name), "\\b")) ~ TRUE,
+      str_detect(cleaned_id, paste0("\\b", post_id, "\\b")) ~ TRUE,
+      .default = FALSE)) |>
   ungroup() |>
-  filter(match_found) |>
+  filter(match_found == TRUE) |>
   # Manually Remove matches that were not correct
   # All 5 removed matches are instances where post_id is incorrectly matched 
   # to either cleaned_id or to name
@@ -370,9 +375,6 @@ capturing_last_matches <- remaining_participants |>
   filter(match_found_name) |>
   mutate(time_point = "pre, post") |>
     unite("cleaned_id", cleaned_id, post_id, sep = "; ", na.rm = TRUE)
-  
-              
-
 
 
 # step 6: merge all participants together
