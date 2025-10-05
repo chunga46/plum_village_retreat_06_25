@@ -11,7 +11,8 @@ required_packages <- c("fuzzyjoin", "ggplot2", "ggtext", "knitr", "tidyverse",
              "tidyr", "dplyr", "here", "stringr", "readr")
 
 if (!require(pacman)) install.packages("pacman")
-pacman::p_load(fuzzyjoin, ggplot2, ggtext, knitr, tidyverse, here)
+pacman::p_load(fuzzyjoin, ggplot2, ggtext, knitr, tidyverse, here, stringr, 
+               purrr)
 
 # LOAD & CLEAN the data -----------------------------------------------------------------------------------------------------------------
 
@@ -38,6 +39,12 @@ remove_dupes <- function(data, vars) {
     select(-starts_with("dup_"))
 }
 
+# function to find remaining participants
+find_remaining <- function(df, matches, col, check_col) {
+  df |>
+  filter({{check_col}} == "Yes") |>
+  anti_join(matches, by = join_by({{col}}))
+}
 
 # Loading Datasets and Cleaning Column Names
 # renaming all columns. For list of survey questions, please see data/survey to
@@ -273,7 +280,6 @@ follow_up_data_dupe <- remove_dupes(follow_up_data, c("cleaned_id", "name"))
 matching_log <- pre_data |>
   select(c(id, time_point, cleaned_id, name))
 
-
 #Used to create new updated matching log. For now it is commented out
 # write_csv(matching_log, here("data", "processed", "matching_log.csv"))
 
@@ -292,10 +298,30 @@ exact_matches <- matching_log |>
 #filter out the participants that don't have a match based on cleaned_id
 unmatched <- exact_matches |>
   filter(!str_detect(time_point, fixed("post"))) |> 
-  select(id:time_point)
+  select(id:name)
 
 # Cross join compares every row combination including itself.
 # Find name matches for unmatched records
+matched_test <- unmatched |>
+  cross_join(post_data |>
+               select(-name) |>
+               rename(post_id = cleaned_id,
+                      post_time = time_point) |>
+               filter(presurvey_check == "Yes")) |>
+  relocate(post_id, .after = time_point) |>
+  #Participants had open response to input their id, and had thus their ids
+  #sometimes were contained in their name. 
+  rowwise() |>
+  mutate(
+    match_found  = any(str_split(cleaned_id, "\\s+")[[1]] %in% str_split(post_id, "\\s+")[[1]])) |>
+  ungroup() |>
+  filter(match_found) |>
+  # Manually Remove matches that were not correct
+  # All 5 removed matches are instances where post_id is incorrectly matched 
+  # to either cleaned_id or to name
+  mutate(time_point = "pre, post") |>
+  unite("cleaned_id", cleaned_id, post_id, sep = "; ", na.rm = TRUE)
+
 matched <- unmatched |>
   cross_join(post_data |>
                select(-name) |>
@@ -303,38 +329,55 @@ matched <- unmatched |>
                       post_time = time_point) |>
                filter(presurvey_check == "Yes")) |>
   relocate(post_id, .after = time_point) |>
+  #Participants had open response to input their id, and had thus their ids
+  #sometimes were contained in their name. 
   filter(
     str_detect(post_id, fixed(name, ignore_case = TRUE)) |
     str_detect(name, fixed(post_id, ignore_case = TRUE)) |
     str_detect(post_id, fixed(cleaned_id, ignore_case = TRUE)) |
     str_detect(cleaned_id, fixed(post_id, ignore_case = TRUE)) 
   ) |>
-  # Manually Remove specific matches that
+  # Manually Remove matches that were not correct
+  slice(-c(4, 8, 9, 11, 12)) |>
   # All 5 removed matches are instances where post_id is incorrectly matched 
   # to either cleaned_id or to name
-  slice(-c(5, 9, 10, 12, 13)) |>
   mutate(time_point = "pre, post") |>
   unite("cleaned_id", cleaned_id, post_id, sep = "; ", na.rm = TRUE)
-  #Merge timepoints and id's together
- 
+
 # step 3: find new post participants and add them to the list
 new_participants <- post_data |>
-  filter(presurvey_check == "No") |>
-  mutate(# Extract highest existing ID number
-        last_id_num = ifelse(
-          nrow(matching_log) > 0,
-          max(
-            as.numeric(str_extract(matching_log$id, "\\d+")),
-            na.rm = TRUE
-          ),
-          0  # Default if no IDs exist
-        ),
-    id = paste0("Participant ", last_id_num + row_number())) |>
-  select(-c(last_id_num, presurvey_check)) |>
-  relocate(id, .before= time_point)
+  filter(presurvey_check == "No") 
 
-#merge pre and pre post participants
-all_data <- bind_rows(exact_matches, matched, new_participants)
+# step 4: merge all post participants who have been matched so far and are not new
+matched_data <- bind_rows(exact_matches |> 
+                        filter(time_point == "pre, post"), matched)
+
+# step 5: identify post participants who have not been matched
+remaining_participants <- find_remaining(post_data, matched_data |> 
+                                           separate_longer_delim(cleaned_id, delim = "; ")
+                                         , cleaned_id, presurvey_check)
+
+capturing_last_matches <- remaining_participants |>
+  cross_join(exact_matches|>
+               rename(post_name = name,
+                      post_id = cleaned_id,
+                      post_time = time_point)) |>
+  rowwise() |>
+  mutate(
+    cleaned_name = clean_names(post_name),
+    match_found_name = any(str_split(cleaned_id, "\\s+")[[1]] %in% str_split(cleaned_name, "\\s+")[[1]])) |>
+  ungroup() |>
+  filter(match_found_name) |>
+  mutate(time_point = "pre, post") |>
+    unite("cleaned_id", cleaned_id, post_id, sep = "; ", na.rm = TRUE)
+  
+              
+
+
+
+# step 6: merge all participants together
+all_data <- bind_rows()
+
 
 #group to remove redundancies
 merged <- all_data |>
@@ -346,9 +389,10 @@ merged <- all_data |>
   arrange(id_num) |>
   select(-id_num)
 
-# NEW UPDATED MATCHING LOG
-pre_post_matching_log <- merged |>
-  select(id:presurvey_check)
+
+# # NEW UPDATED MATCHING LOG
+# pre_post_matching_log <- merged |>
+#   select(id:presurvey_check)
 
 # write_csv(pre_post_matching_log, here("data", "processed",
 #                                       "pre_post_matching_log.csv"))
