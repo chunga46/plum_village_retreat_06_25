@@ -46,6 +46,90 @@ find_remaining <- function(df, matches, col, check_col) {
   anti_join(matches, by = join_by({{col}}))
 }
 
+# function to find length of string
+find_length <- function(string_name) {
+  length(strsplit(string_name, "\\s+")[[1]])
+}
+
+# function to return a list or vector that contains matched list and new matching log
+
+# function to find matches and return a new data-frame with /n
+# new matched list of participants with new time_point separated by ','
+# function to add unmatched individuals and return a new matching log
+# 
+
+match_dfs <- function(df1, df2, time_point1, time_point2) {
+  # Create a new df that contains rows that are located in time_point1 and time_point2 from df1 and df2
+  # > exact_matches <- matching_log |>
+  # >    left_join(post_data |>
+  # >        select(-name), by = "cleaned_id") |>
+  # >           unite("time_point", time_point.x, time_point.y, sep = ", ", na.rm = TRUE)
+  # > pre_post_matches <-  match_dfs(matching_log, post_data, "pre", "post") 
+  
+  # Argument Conditions:
+  # df1 and df2 are data-frames
+  # that include a column called time_point
+  # df2 has a column called name
+  matched <- df1 |>
+    left_join(df2 |>
+                select(-name), by = "cleaned_id") |>
+    filter(time_point.x == time_point1 & time_point.y == time_point2)
+}
+
+find_unmatched <- function(matched, matching_log, participants) {
+  # Return df that include new participants that have not been matched with updated
+  # participant ID.
+  
+  # Arguments:
+  # matching_log, matched and participants are dataframes
+  # that include columns called time_point and id and cleaned_id
+  # participant_list has a column called name
+  
+  unmatched <- participants |>
+    anti_join(matched, by = "cleaned_id") |>
+    mutate(# Extract highest existing ID number
+      last_id_num = ifelse(
+        nrow(matching_log) > 0,
+        max(
+          as.numeric(str_extract(matching_log$id, "\\d+")),
+          na.rm = TRUE
+        ),
+        0  # Default if no IDs exist
+      ),
+      id = paste0("Participant ", last_id_num + row_number())) |>
+    select(-c(last_id_num)) |>
+    relocate(id, .before= time_point)
+  return(unmatched)
+}
+
+update_log <- function(matching_log, participant_list, master_list, 
+                       time_point1, time_point2) {
+  # Updates matching log to include new participants that have not been matched
+  
+  # Arguments:
+  # matching_log and participant_list are dataframes
+  # that includes column called time_point
+  # participant_list has a column called name
+  
+  matched <- match_dfs(matching_log, participant_list, time_point1, time_point2)
+  unmatched <- participant_list |>
+    anti_join(matched, by = "cleaned_id") |>
+    unite("time_point", time_point.x, time_point.y, sep = ", ", na.rm = TRUE) |>
+    mutate(# Extract highest existing ID number
+      last_id_num = ifelse(
+        nrow(matching_log) > 0,
+        max(
+          as.numeric(str_extract(matching_log$id, "\\d+")),
+          na.rm = TRUE
+        ),
+        0  # Default if no IDs exist
+      ),
+      id = paste0("Participant ", last_id_num + row_number())) |>
+    select(-c(last_id_num)) |>
+    relocate(id, .before= time_point)
+  return(unmatched)
+}
+
 # Loading Datasets and Cleaning Column Names
 # renaming all columns. For list of survey questions, please see data/survey to
 # find access to pre, post and follow up questions.
@@ -199,7 +283,7 @@ post_data <- read_csv(here("data", "raw", "PV_post_raw-data.csv")) |>
   mutate(time_point = "post") |>
   relocate(time_point, .before = cleaned_id)
 
-post_data_dupe <- remove_dupes(post_data, c("cleaned_id", "name")) 
+post_data <- remove_dupes(post_data, c("cleaned_id", "name")) 
 # follow up data
 
 # renaming all columns 
@@ -276,7 +360,7 @@ follow_up_data <- read_csv(here("data", "raw", "PV_follow_up_raw-data.csv")) |>
   relocate(cleaned_id,name, .after = presurvey_post_check) |>
   mutate(time_point = "follow_up") 
 
-follow_up_data_dupe <- remove_dupes(follow_up_data, c("cleaned_id", "name")) 
+follow_up_data <- remove_dupes(follow_up_data, c("cleaned_id", "name")) 
 
 matching_log <- pre_data |>
   select(c(id, time_point, cleaned_id, name))
@@ -289,12 +373,21 @@ matching_log <- pre_data |>
 # step 1 includes folks who have filled post data
 # Merge together names from matching log and the post data.
 # Merge time_points if there is direct match based on cleaned_id
+
 exact_matches <- matching_log |>
   left_join(post_data |>
               select(-name), by = "cleaned_id") |>
   unite("time_point", time_point.x, time_point.y, sep = ", ", na.rm = TRUE)
 
+pre_post_matches <-  match_dfs(matching_log, post_data, "pre", "post") 
+
+post_unmatched <- find_unmatched(pre_post_matches, matching_log, post_data)
+
 # step 2:  Add participants with ids that don't match but are contained in name or id
+
+#filter out the participants that don't have a match based on cleaned_id
+unmatched_post <- post_data |>
+  anti_join(pre_post_matches, by = "cleaned_id") 
 
 #filter out the participants that don't have a match based on cleaned_id
 unmatched <- exact_matches |>
@@ -310,20 +403,25 @@ matched_test <- unmatched |>
                       post_time = time_point) |>
                filter(presurvey_check == "Yes")) |>
   relocate(post_id, .after = time_point) |>
-  #Participants had open response to input their id, and had thus their ids
-  #sometimes were contained in their name. 
+  #Participants had open response to input their id, and their ids could have been contained in their name. 
   rowwise() |>
   mutate(
     match_found  = case_when(
       cleaned_id == post_id ~ TRUE,
+      #checking if post id is 
       str_detect(post_id, paste0("\\b", clean_names(name), "\\b")) ~ TRUE,
-      str_detect(cleaned_id, paste0("\\b", post_id, "\\b")) ~ TRUE,
+      str_detect(cleaned_id, paste0("\\b", clean_names(post_id), "\\b")) ~ TRUE,
+      # This is 
+      ifelse(find_length(cleaned_id) > 1 &  find_length(post_id) > 1, 
+                    cleaned_id %in% post_id, FALSE) ~ TRUE,
+      ifelse(find_length(cleaned_id) == 1 | find_length(post_id) == 1, 
+             length(intersect(strsplit(cleaned_id, "\\s+")[[1]], 
+                              strsplit(post_id, "\\s+")[[1]])) > 0, FALSE) ~ TRUE,
+      
       .default = FALSE)) |>
   ungroup() |>
   filter(match_found == TRUE) |>
-  # Manually Remove matches that were not correct
-  # All 5 removed matches are instances where post_id is incorrectly matched 
-  # to either cleaned_id or to name
+ 
   mutate(time_point = "pre, post") |>
   unite("cleaned_id", cleaned_id, post_id, sep = "; ", na.rm = TRUE)
 
@@ -382,14 +480,14 @@ all_data <- bind_rows()
 
 
 #group to remove redundancies
-merged <- all_data |>
-  #group to remove outdated duplicates
-  group_by(id) |>
-  slice_tail(n=1) |>
-  ungroup() |>
-  mutate(id_num = parse_number(id)) |>
-  arrange(id_num) |>
-  select(-id_num)
+# merged <- all_data |>
+#   #group to remove outdated duplicates
+#   group_by(id) |>
+#   slice_tail(n=1) |>
+#   ungroup() |>
+#   mutate(id_num = parse_number(id)) |>
+#   arrange(id_num) |>
+#   select(-id_num)
 
 
 # # NEW UPDATED MATCHING LOG
@@ -403,44 +501,44 @@ merged <- all_data |>
 # Find intersecting column names automatically
 # Create new matching log
 
-# first cleaning pre and post
-cleaned_post_data <- merged |>
-  select(-c(name, cleaned_id)) |>
-  relocate(age:nature, .after = time_point) 
-
-cleaned_pre_data <- matching_log |>
-  left_join(pre_data |> select(-c(name:matching_id, time_point)), 
-            by = "cleaned_id") 
-
-# MERGED PRE POST DATA
-
-common_cols <- intersect(names(cleaned_pre_data), names(cleaned_post_data))
-pre_post_data <- full_join(cleaned_pre_data, cleaned_post_data, by = common_cols) |>
-  group_by(id) |>
-  summarize(
-    across(age:anything_else, 
-           ~ if_else(n() >= 2, first(.x), first(.x))),
-    across(c(time_point, presurvey_check:anything_else_post), 
-           ~ if_else(n() >= 2, nth(.x, 2), first(.x)))
-  )|>
-  ungroup() |>
-  mutate(id_num = parse_number(id)) |>
-  arrange(id_num) |>
-  select(-id_num) |>
-  mutate(
-    age = parse_number(age)
-  ) |>
-  relocate(time_point, .after = id)
-
-#separating qual and quant for initial independent analysis
-qual_pre_post <- pre_post_data |>
-  select(-c(anxiety:life_direction,
-            retreat_fosters_collab_scientist_practitioners:life_direction_post))
-
-quant_pre_post <- pre_post_data |>
-  select(-c(collaboration_qual: anything_else,
-            takeaway:global_challenge_insight,
-            work_challenges_post:anything_else_post))
+# # first cleaning pre and post
+# cleaned_post_data <- merged |>
+#   select(-c(name, cleaned_id)) |>
+#   relocate(age:nature, .after = time_point) 
+# 
+# cleaned_pre_data <- matching_log |>
+#   left_join(pre_data |> select(-c(name:cleaned_id, time_point)), 
+#             by = "cleaned_id") 
+# 
+# # MERGED PRE POST DATA
+# 
+# common_cols <- intersect(names(cleaned_pre_data), names(cleaned_post_data))
+# pre_post_data <- full_join(cleaned_pre_data, cleaned_post_data, by = common_cols) |>
+#   group_by(id) |>
+#   summarize(
+#     across(age:anything_else, 
+#            ~ if_else(n() >= 2, first(.x), first(.x))),
+#     across(c(time_point, presurvey_check:anything_else_post), 
+#            ~ if_else(n() >= 2, nth(.x, 2), first(.x)))
+#   )|>
+#   ungroup() |>
+#   mutate(id_num = parse_number(id)) |>
+#   arrange(id_num) |>
+#   select(-id_num) |>
+#   mutate(
+#     age = parse_number(age)
+#   ) |>
+#   relocate(time_point, .after = id)
+# 
+# #separating qual and quant for initial independent analysis
+# qual_pre_post <- pre_post_data |>
+#   select(-c(anxiety:life_direction,
+#             retreat_fosters_collab_scientist_practitioners:life_direction_post))
+# 
+# quant_pre_post <- pre_post_data |>
+#   select(-c(collaboration_qual: anything_else,
+#             takeaway:global_challenge_insight,
+#             work_challenges_post:anything_else_post))
 
 # Writing data
 # write_csv(pre_post_data, here("data", "processed", "pre_post_data.csv"))
@@ -450,6 +548,12 @@ quant_pre_post <- pre_post_data |>
 
 # Matching data with participant
 matching_log_follow <- read_csv(here("data", "processed", "pre_post_matching_log.csv"))
+
+# step 1 includes folks who have filled post data
+exact_matches_follow_test <- matching_log |>
+  left_join(follow_up_data |>
+              select(-name), by = "cleaned_id") |>
+  unite("time_point", time_point.x, time_point.y, sep = ", ", na.rm = TRUE)
 
 # step 1 includes folks who have filled post data
 exact_matches_follow <- matching_log_follow |>
