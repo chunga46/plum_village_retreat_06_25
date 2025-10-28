@@ -102,32 +102,16 @@ find_unmatched <- function(matched, matching_log, participants) {
   return(unmatched)
 }
 
-update_log <- function(matching_log, participant_list, master_list, 
-                       time_point1, time_point2) {
-  # Updates matching log to include new participants that have not been matched
-  
-  # Arguments:
-  # matching_log and participant_list are dataframes
-  # that includes column called time_point
-  # participant_list has a column called name
-  
-  matched <- match_dfs(matching_log, participant_list, time_point1, time_point2)
-  unmatched <- participant_list |>
-    anti_join(matched, by = "cleaned_id") |>
-    unite("time_point", time_point.x, time_point.y, sep = ", ", na.rm = TRUE) |>
-    mutate(# Extract highest existing ID number
-      last_id_num = ifelse(
-        nrow(matching_log) > 0,
-        max(
-          as.numeric(str_extract(matching_log$id, "\\d+")),
-          na.rm = TRUE
-        ),
-        0  # Default if no IDs exist
-      ),
-      id = paste0("Participant ", last_id_num + row_number())) |>
-    select(-c(last_id_num)) |>
-    relocate(id, .before= time_point)
-  return(unmatched)
+reorder <- function(df) {
+  # This function reorders list into appropriate order based on Participant ID
+  # This function requires a df with the column "id" 
+  df |> 
+  group_by(id) |>
+    slice_head(n=1) |>
+    ungroup() |>
+    mutate(id_num = parse_number(id)) |>
+    arrange(id_num) |>
+    select(-id_num)
 }
 
 # Loading Datasets and Cleaning Column Names
@@ -370,18 +354,39 @@ matching_log <- pre_data |>
 
 # MATCHING PRE POST FOLLOW UP Participants  -----------------------------------------------------------------------------------------------------------------
 
-# step 1 includes folks who have filled post data
-# Merge together names from matching log and the post data.
-# Merge time_points if there is direct match based on cleaned_id
+# step 1 find exact matches based on id with participants and those who have 
+# not been matched
 
-exact_matches <- matching_log |>
-  left_join(post_data |>
-              select(-name), by = "cleaned_id") |>
+#pre dat
+
+pre_post_matches <-  match_dfs(matching_log, post_data, "pre", "post") |>
   unite("time_point", time_point.x, time_point.y, sep = ", ", na.rm = TRUE)
-
-pre_post_matches <-  match_dfs(matching_log, post_data, "pre", "post") 
-
 post_unmatched <- find_unmatched(pre_post_matches, matching_log, post_data)
+
+pre_post <- bind_rows(pre_data, pre_post_matches, post_unmatched)
+
+pre_post <- reorder(pre_post)
+
+matching_log2 <- pre_post |>
+  select(id, time_point, cleaned_id, name)
+
+pre_follow_matches <-  match_dfs(matching_log, post_data, "pre", "post") |>
+  unite("time_point", time_point.x, time_point.y, sep = ", ", na.rm = TRUE)
+post_unmatched <- find_unmatched(pre_post_matches, matching_log, post_data)
+
+pre_post <- bind_rows(pre_data, pre_post_matches, post_unmatched)
+
+pre_post <- reorder(pre_post)
+
+
+
+# There is a certain group of people who have not given consent i.e not provided
+# their names to the survey and have no previous match to a pre survey even if
+# they indicated they had previously completed the survey. 
+
+
+
+# pre_follow_matches <- match_dfs()
 
 # step 2:  Add participants with ids that don't match but are contained in name or id
 
